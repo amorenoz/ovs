@@ -868,6 +868,12 @@ ovs_explicit_drop_action_supported(struct ofproto_dpif *ofproto)
     return ofproto->backer->rt_support.explicit_drop_action;
 }
 
+bool
+ovs_lb_output_action_supported(struct ofproto_dpif *ofproto)
+{
+    return ofproto->backer->rt_support.lb_output_action;
+}
+
 /* Tests whether 'backer''s datapath supports recirculation.  Only newer
  * datapaths support OVS_KEY_ATTR_RECIRC_ID in keys.  We need to disable some
  * features on older datapaths that don't support this feature.
@@ -6634,13 +6640,6 @@ meter_del(struct ofproto *ofproto_, ofproto_meter_id meter_id)
     ovsrcu_postpone(free_meter_id, arg);
 }
 
-static bool
-is_lb_output_action_supported(const struct ofproto *ofproto_)
-{
-    struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofproto_);
-    return ofproto->backer->rt_support.lb_output_action;
-}
-
 const struct ofproto_class ofproto_dpif_class = {
     init,
     enumerate_types,
@@ -6748,5 +6747,4 @@ const struct ofproto_class ofproto_dpif_class = {
     ct_flush,                   /* ct_flush */
     ct_set_zone_timeout_policy,
     ct_del_zone_timeout_policy,
-    is_lb_output_action_supported,
 };

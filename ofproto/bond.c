@@ -122,7 +122,7 @@ struct bond {
     enum lacp_status lacp_status; /* Status of LACP negotiations. */
     bool bond_revalidate;       /* True if flows need revalidation. */
     uint32_t basis;             /* Basis for flow hash function. */
-    bool use_lb_output_action;  /* Use lb-output-action to avoid recirculation.
+    bool use_lb_output_action;  /* Use lb_output action to avoid recirculation.
                                    Applicable only for Balance TCP mode. */
 
     /* SLB specific bonding info. */
@@ -183,10 +183,10 @@ static struct bond_slave *choose_output_slave(const struct bond *,
                                               struct flow_wildcards *,
                                               uint16_t vlan)
     OVS_REQ_RDLOCK(rwlock);
-static void update_recirc_rules__(struct bond *bond);
+static void update_recirc_rules__(struct bond *);
 static bool bond_is_falling_back_to_ab(const struct bond *);
-static void bond_add_lb_output_buckets(const struct bond *bond);
-static void bond_del_lb_output_buckets(const struct bond *bond);
+static void bond_add_lb_output_buckets(const struct bond *);
+static void bond_del_lb_output_buckets(const struct bond *);
 
 /* Attempts to parse 's' as the name of a bond balancing mode.  If successful,
  * stores the mode in '*balance' and returns true.  Otherwise returns false
@@ -340,8 +340,6 @@ update_recirc_rules__(struct bond *bond)
     struct ofpbuf ofpacts;
     int i;
 
-    ofpbuf_use_stub(&ofpacts, ofpacts_stub, sizeof ofpacts_stub);
-
     HMAP_FOR_EACH(pr_op, hmap_node, &bond->pr_rule_ops) {
         pr_op->op = DEL;
     }
@@ -350,9 +348,8 @@ update_recirc_rules__(struct bond *bond)
         if (bond_use_lb_output_action(bond)) {
             bond_add_lb_output_buckets(bond);
             /* No need to install post recirculation rules as we are using
-             * lb-output-action with bond buckets.
+             * lb_output action with bond buckets.
              */
-            ofpbuf_uninit(&ofpacts);
             return;
         } else {
             for (i = 0; i < BOND_BUCKETS; i++) {
@@ -369,6 +366,8 @@ update_recirc_rules__(struct bond *bond)
             }
         }
     }
+
+    ofpbuf_use_stub(&ofpacts, ofpacts_stub, sizeof ofpacts_stub);
 
     HMAP_FOR_EACH_SAFE(pr_op, next_op, hmap_node, &bond->pr_rule_ops) {
         int error;
@@ -485,8 +484,14 @@ bond_reconfigure(struct bond *bond, const struct bond_settings *s)
         bond->recirc_id = 0;
     }
     if (bond->use_lb_output_action != s->use_lb_output_action) {
-        bond->use_lb_output_action = s->use_lb_output_action;
-        revalidate = true;
+        if (s->use_lb_output_action &&
+            !ovs_lb_output_action_supported(bond->ofproto)) {
+            VLOG_WARN("%s: Datapath does not support 'lb_output' action, "
+                      "disabled.", bond->name);
+        } else {
+            bond->use_lb_output_action = s->use_lb_output_action;
+            revalidate = true;
+        }
     }
 
     if (bond->balance == BM_AB || !bond->hash || revalidate) {
@@ -965,7 +970,7 @@ bond_recirculation_account(struct bond *bond)
     OVS_REQ_WRLOCK(rwlock)
 {
     int i;
-    uint64_t n_bytes[BOND_BUCKETS] = {0};
+    uint64_t n_bytes[BOND_BUCKETS];
     bool use_lb_output_action = bond_use_lb_output_action(bond);
 
     if (use_lb_output_action) {
@@ -1384,6 +1389,7 @@ bond_print_details(struct ds *ds, const struct bond *bond)
     struct shash slave_shash = SHASH_INITIALIZER(&slave_shash);
     const struct shash_node **sorted_slaves = NULL;
     const struct bond_slave *slave;
+    bool use_lb_output_action;
     bool may_recirc;
     uint32_t recirc_id;
     int i;
@@ -1398,9 +1404,11 @@ bond_print_details(struct ds *ds, const struct bond *bond)
                   may_recirc ? "yes" : "no", may_recirc ? recirc_id: -1);
 
     ds_put_format(ds, "bond-hash-basis: %"PRIu32"\n", bond->basis);
-    ds_put_format(ds, "lb-output-action: %s, bond-id: %u\n",
-                  bond->use_lb_output_action ? "enabled" : "disabled",
-                  recirc_id);
+
+    use_lb_output_action = bond_use_lb_output_action(bond);
+    ds_put_format(ds, "lb_output action: %s, bond-id: %d\n",
+                  use_lb_output_action ? "enabled" : "disabled",
+                  use_lb_output_action ? recirc_id : -1);
 
     ds_put_format(ds, "updelay: %d ms\n", bond->updelay);
     ds_put_format(ds, "downdelay: %d ms\n", bond->downdelay);
@@ -1982,13 +1990,13 @@ bond_get_changed_active_slave(const char *name, struct eth_addr *mac,
 bool
 bond_use_lb_output_action(const struct bond *bond)
 {
-    return (bond_may_recirc(bond)) && bond->use_lb_output_action;
+    return bond_may_recirc(bond) && bond->use_lb_output_action;
 }
 
 static void
 bond_add_lb_output_buckets(const struct bond *bond)
 {
-    ofp_port_t slave_map[BOND_MASK];
+    ofp_port_t slave_map[BOND_BUCKETS];
 
     for (int i = 0; i < BOND_BUCKETS; i++) {
         struct bond_slave *slave = bond->hash[i].slave;

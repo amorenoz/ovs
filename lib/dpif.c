@@ -1992,36 +1992,26 @@ dpif_meter_del(struct dpif *dpif, ofproto_meter_id meter_id,
 int
 dpif_bond_add(struct dpif *dpif, uint32_t bond_id, odp_port_t *slave_map)
 {
-    int error = -ENOTSUP;
-
-    if (dpif && dpif->dpif_class && dpif->dpif_class->bond_del) {
-        error = dpif->dpif_class->bond_add(dpif, bond_id, slave_map);
-    }
-
-    return error;
+    return dpif->dpif_class->bond_del
+           ? dpif->dpif_class->bond_add(dpif, bond_id, slave_map)
+           : EOPNOTSUPP;
 }
 
 int
 dpif_bond_del(struct dpif *dpif, uint32_t bond_id)
 {
-    int error = -ENOTSUP;
-
-    if (dpif && dpif->dpif_class && dpif->dpif_class->bond_del) {
-        error = dpif->dpif_class->bond_del(dpif, bond_id);
-    }
-
-    return error;
+    return dpif->dpif_class->bond_del
+           ? dpif->dpif_class->bond_del(dpif, bond_id)
+           : EOPNOTSUPP;
 }
 
 int
 dpif_bond_stats_get(struct dpif *dpif, uint32_t bond_id,
                     uint64_t *n_bytes)
 {
-    int error = -ENOTSUP;
+    memset(n_bytes, 0, BOND_BUCKETS * sizeof *n_bytes);
 
-    if (dpif && dpif->dpif_class && dpif->dpif_class->bond_stats_get) {
-        error = dpif->dpif_class->bond_stats_get(dpif, bond_id, n_bytes);
-    }
-
-    return error;
+    return dpif->dpif_class->bond_stats_get
+           ? dpif->dpif_class->bond_stats_get(dpif, bond_id, n_bytes)
+           : EOPNOTSUPP;
 }

@@ -624,7 +624,8 @@ struct dpif_class {
     /* Removes bond identified by 'bond_id' from 'dpif'. */
     int (*bond_del)(struct dpif *dpif, uint32_t bond_id);
 
-    /* Reads bond stats from 'dpif'. */
+    /* Reads bond stats from 'dpif'.  'n_bytes' should be an array with size
+     * sufficient to store BOND_BUCKETS number of elements. */
     int (*bond_stats_get)(struct dpif *dpif, uint32_t bond_id,
                           uint64_t *n_bytes);
 };

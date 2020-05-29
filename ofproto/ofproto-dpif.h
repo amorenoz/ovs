@@ -385,11 +385,11 @@ int ofproto_dpif_add_internal_flow(struct ofproto_dpif *,
                                    struct rule **rulep);
 int ofproto_dpif_delete_internal_flow(struct ofproto_dpif *, struct match *,
                                       int priority);
-int ofproto_dpif_add_lb_output_buckets(struct ofproto_dpif *dpif,
-                                       uint32_t bond_id,
+int ofproto_dpif_add_lb_output_buckets(struct ofproto_dpif *, uint32_t bond_id,
                                        const ofp_port_t *slave_map);
-int ofproto_dpif_delete_lb_output_buckets(struct ofproto_dpif *dpif,
+int ofproto_dpif_delete_lb_output_buckets(struct ofproto_dpif *,
                                           uint32_t bond_id);
+bool ovs_lb_output_action_supported(struct ofproto_dpif *);
 
 bool ovs_native_tunneling_is_on(struct ofproto_dpif *);
 

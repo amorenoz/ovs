@@ -1498,15 +1498,6 @@ ofproto_is_mirror_output_bundle(const struct ofproto *ofproto, void *aux)
             : false);
 }
 
-/* Returns true if datapath supports lb-output-action. */
-bool
-ofproto_is_lb_output_action_supported(const struct ofproto *ofproto)
-{
-    return (ofproto->ofproto_class->is_lb_output_action_supported
-            ? ofproto->ofproto_class->is_lb_output_action_supported(ofproto)
-            : false);
-}
-
 
 /* Configuration of OpenFlow tables. */
 

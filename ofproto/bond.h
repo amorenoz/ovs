@@ -58,7 +58,7 @@ struct bond_settings {
                                 /* The MAC address of the interface
                                    that was active during the last
                                    ovs run. */
-    bool use_lb_output_action;  /* Use lb-output-action. Only applicable for
+    bool use_lb_output_action;  /* Use lb_output action. Only applicable for
                                    bond mode BALANCE TCP. */
 };
 
