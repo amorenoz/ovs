@@ -6,6 +6,7 @@ object.
 """
 
 import netaddr
+import re
 
 
 class Decoder(object):
@@ -414,3 +415,110 @@ class IPMask(Decoder):
 
     def to_json(self):
         return str(self)
+
+
+def decode_free_output(value):
+    """The value of the output action can be found free, i.e: without the
+    'output' keyword. This decoder decodes its value when found this way."""
+    try:
+        return "output", {"port": int(value)}
+    except ValueError:
+        return "output", {"port": value.strip('"')}
+
+
+ipv4 = r"(?:\d{1,3}.?){3}\d{1,3}"
+ipv4_capture = r"({ipv4})".format(ipv4=ipv4)
+"""
+The following IPv6 regexp is a modified version of the one in:
+https://community.helpsystems.com/forums/intermapper/miscellaneous-topics/5acc4fcf-fa83-e511-80cf-0050568460e4?_ga=2.113564423.1432958022.1523882681-2146416484.1523557976
+
+It matches all these types of ipv6 addresses:
+fe80:0000:0000:0000:0204:61ff:fe9d:f156
+fe80:0:0:0:204:61ff:fe9d:f156
+fe80::204:61ff:fe9d:f156
+fe80:0000:0000:0000:0204:61ff:254.157.241.86
+fe80:0:0:0:0204:61ff:254.157.241.86
+fe80::204:61ff:254.157.241.86
+::1
+2001::
+fe80::
+"""
+ipv6 = r"(?:(?:(?:[0-9A-Fa-f]{1,4}:){7}(?:[0-9A-Fa-f]{1,4}|:))|(?:(?:[0-9A-Fa-f]{1,4}:){6}(?::[0-9A-Fa-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(?:(?:[0-9A-Fa-f]{1,4}:){5}(?:(?:(?::[0-9A-Fa-f]{1,4}){1,2})|:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(?:(?:[0-9A-Fa-f]{1,4}:){4}(?:(?:(?::[0-9A-Fa-f]{1,4}){1,3})|(?:(?::[0-9A-Fa-f]{1,4})?:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(?:(?:[0-9A-Fa-f]{1,4}:){3}(?:(?:(?::[0-9A-Fa-f]{1,4}){1,4})|(?:(?::[0-9A-Fa-f]{1,4}){0,2}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(?:(?:[0-9A-Fa-f]{1,4}:){2}(?:(?:(?::[0-9A-Fa-f]{1,4}){1,5})|(?:(?::[0-9A-Fa-f]{1,4}){0,3}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(?:(?:[0-9A-Fa-f]{1,4}:){1}(?:(?:(?::[0-9A-Fa-f]{1,4}){1,6})|(?:(?::[0-9A-Fa-f]{1,4}){0,4}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(?::(?:(?:(?::[0-9A-Fa-f]{1,4}){1,7})|(?:(?::[0-9A-Fa-f]{1,4}){0,5}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))"  # noqa: E501
+ipv6_capture = r"(?:\[*)?({ipv6})(?:\]*)?".format(ipv6=ipv6)
+port_range = r":(\d+)(?:-(\d+))?"
+ip_range_regexp = r"{ip_cap}(?:-{ip_cap})?(?:{port_range})?"
+ipv4_port_regex = re.compile(
+    ip_range_regexp.format(ip_cap=ipv4_capture, port_range=port_range)
+)
+ipv6_port_regex = re.compile(
+    ip_range_regexp.format(ip_cap=ipv6_capture, port_range=port_range)
+)
+
+
+def decode_ip_port_range(value):
+    """
+    Decodes an IP and port range:
+        {ip_start}-{ip-end}:{port_start}-{port_end}
+
+    IPv6 addresses are surrounded by "[" and "]" if port ranges are also
+    present
+
+    Returns the following dictionary:
+        {
+            "addrs": {
+                "start": {ip_start}
+                "end": {ip_end}
+            }
+            "ports": {
+                "start": {port_start},
+                "end": {port_end}
+        }
+        (the "ports" key might be omitted)
+    """
+    if value.count(":") > 1:
+        match = ipv6_port_regex.match(value)
+    else:
+        match = ipv4_port_regex.match(value)
+
+    ip_start = match.group(1)
+    ip_end = match.group(2)
+    port_start = match.group(3)
+    port_end = match.group(4)
+
+    result = {
+        "addrs": {
+            "start": netaddr.IPAddress(ip_start),
+            "end": netaddr.IPAddress(ip_end or ip_start),
+        }
+    }
+    if port_start:
+        result["ports"] = {
+            "start": int(port_start),
+            "end": int(port_end or port_start),
+        }
+
+    return result
+
+
+def decode_nat(value):
+    """Decodes the 'nat' keyword of the ct action"""
+    if not value:
+        return True
+
+    result = dict()
+    type_parts = value.split("=")
+    result["type"] = type_parts[0]
+
+    if len(type_parts) > 1:
+        value_parts = type_parts[1].split(",")
+        if len(type_parts) != 2:
+            raise ValueError("Malformed nat action: %s" % value)
+
+        ip_port_range = decode_ip_port_range(value_parts[0])
+
+        result = {"type": type_parts[0], **ip_port_range}
+
+        for flag in value_parts[1:]:
+            result[flag] = True
+
+    return result
