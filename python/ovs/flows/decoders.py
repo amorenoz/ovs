@@ -6,6 +6,7 @@ object.
 """
 
 import re
+import json
 import functools
 import netaddr
 
@@ -13,7 +14,8 @@ import netaddr
 class Decoder:
     """Base class for all decoder classes"""
 
-    pass
+    def to_json(self):
+        assert "function must be implemented by derived class"
 
 
 def decode_default(value):
@@ -60,11 +62,12 @@ def decode_time(value):
 
 
 class IntMask(Decoder):
-    """ Base class for Integer Mask decoder classes
+    """Base class for Integer Mask decoder classes
 
     It supports decoding a value/mask pair. It has to be derived and size
     has to be set to a specific value
     """
+
     size = None  # size in bits
 
     def __init__(self, string):
@@ -120,9 +123,6 @@ class IntMask(Decoder):
     def __repr__(self):
         return "%s('%s')" % (self.__class__.__name__, self)
 
-    def dict(self):
-        return {"value": self._value, "mask": self._mask}
-
     def __eq__(self, other):
         return self.value == other.value and self.mask == other.mask
 
@@ -133,6 +133,12 @@ class IntMask(Decoder):
             return other.min() in self and other.max() in self
         else:
             return other & self._mask == self._value & self._mask
+
+    def dict(self):
+        return {"value": self._value, "mask": self._mask}
+
+    def to_json(self):
+        return self.dict()
 
 
 class Mask8(IntMask):
@@ -171,7 +177,6 @@ def decode_mask(mask_size):
         __name__ = "Mask{}".format(size)
 
     return Mask
-
 
 
 class EthMask(Decoder):
@@ -243,6 +248,9 @@ class EthMask(Decoder):
 
     def __repr__(self):
         return "%s('%s')" % (self.__class__.__name__, self)
+
+    def to_json(self):
+        return str(self)
 
 
 class IPMask(Decoder):
@@ -344,6 +352,9 @@ class IPMask(Decoder):
     def __repr__(self):
         return "%s('%s')" % (self.__class__.__name__, self)
 
+    def to_json(self):
+        return str(self)
+
 
 def decode_free_output(value):
     """Decodes the output value when found free (without the 'output' keyword)"""
@@ -432,3 +443,16 @@ def decode_nat(value):
 
     return result
 
+
+class FlowEncoder(json.JSONEncoder):
+    """FlowEncoder is a json.JSONEncoder instance that can be used to
+    serialize flow fields
+    """
+
+    def default(self, obj):
+        if isinstance(obj, Decoder):
+            return obj.to_json()
+        elif isinstance(obj, netaddr.IPAddress):
+            return str(obj)
+
+        return json.JSONEncoder.default(self, obj)
