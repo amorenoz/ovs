@@ -49,7 +49,16 @@ ovs_pyfiles = \
 	python/ovs/flows/flow.py \
 	python/ovs/flows/ofp.py \
 	python/ovs/flows/odp.py \
-	python/ovs/flows/filter.py
+	python/ovs/flows/filter.py \
+	python/ovs/ofparse/console.py \
+	python/ovs/ofparse/dp.py \
+	python/ovs/ofparse/ofp.py \
+	python/ovs/ofparse/ofparse \
+	python/ovs/ofparse/process.py \
+	python/ovs/ofparse/main.py \
+	python/ovs/ofparse/__init__.py
+
+
 
 # These python files are used at build time but not runtime,
 # so they are not installed.
