@@ -33,6 +33,10 @@ Commands:
                         configuration.
  save-flows             Outputs a shell script on stdout that will restore
                         OpenFlow flows of each Open vSwitch bridge.
+ save-flows-compact     Compact version of save-flows. The shell script is
+                        stored in \$DIR/restore.sh where DIR is a temporary
+                        directory that contains all the other needed data
+                        files. Outputs the value of DIR.
 This script is meant as a helper for the Open vSwitch init script commands.
 EOF
 }
@@ -106,6 +110,25 @@ get_highest_ofp_version() {
 }
 
 save_flows () {
+    compact=$1
+    shift
+
+    echo_script() {
+        if test X"${compact:-no}" = Xyes; then
+            echo $@ >> $workdir/restore.sh
+        else
+            echo $@ 
+        fi
+    }
+
+    workdir=$(mktemp -d "${TMPDIR:-/tmp}/ovs-save.XXXXXXXXXX")
+    datadir=$workdir
+    if test X"${compact:-no}" = Xyes; then
+        echo_script "#! /bin/sh"
+        echo_script "SCRIPT_PATH=\$(dirname \$(readlink -f \$0))"
+        datadir="\$SCRIPT_PATH"
+    fi
+
     if (ovs-ofctl --version) > /dev/null 2>&1; then :; else
         echo "$0: ovs-ofctl not found in $PATH" >&2
         exit 1
@@ -122,25 +145,24 @@ save_flows () {
             ;;
     esac
 
-    workdir=$(mktemp -d "${TMPDIR:-/tmp}/ovs-save.XXXXXXXXXX")
     for bridge in "$@"; do
         # Get the highest enabled OpenFlow version
         ofp_version=$(get_highest_ofp_version "$bridge")
 
-        printf "%s" "ovs-ofctl add-tlv-map ${bridge} '"
+        echo_script -n  "ovs-ofctl add-tlv-map ${bridge} '"
         ovs-ofctl dump-tlv-map ${bridge} -O $ofp_version | \
         awk '/^  *0x/ {if (cnt != 0) printf ","; \
              cnt++;printf "{class="$1",type="$2",len="$3"}->"$4}'
-        echo "'"
+        echo_script "'"
 
         # If possible use OpenFlow 1.4 atomic bundle txn for flows and groups
         [ ${ofp_version#OpenFlow} -ge 14 ] && bundle=" --bundle" || bundle=""
 
-        echo "ovs-ofctl -O $ofp_version add-groups ${bridge} \
-              \"$workdir/$bridge.groups.dump\" ${bundle}"
+        echo_script "ovs-ofctl -O $ofp_version add-groups ${bridge} \
+              \"$datadir/$bridge.groups.dump\" ${bundle}"
 
-        echo "ovs-ofctl -O $ofp_version replace-flows ${bridge} \
-              \"$workdir/$bridge.flows.dump\" ${bundle}"
+        echo_script "ovs-ofctl -O $ofp_version replace-flows ${bridge} \
+              \"$datadir/$bridge.flows.dump\" ${bundle}"
 
         ovs-ofctl -O $ofp_version dump-groups "$bridge" | \
             sed -e '/^OFPST_GROUP_DESC/d' \
@@ -153,7 +175,11 @@ save_flows () {
                 -e 's/\(idle\|hard\)_age=[^,]*,//g' > \
                 "$workdir/$bridge.flows.dump"
     done
-    echo "rm -rf \"$workdir\""
+    if test X"${compact:-no}" = Xno; then
+        echo_script "rm -rf \"$workdir\""
+    else
+        echo $workdir
+    fi
 }
 
 while [ $# -ne 0 ]
@@ -161,7 +187,12 @@ do
     case $1 in
         "save-flows")
             shift
-            save_flows "$@"
+            save_flows "no" "$@"
+            exit 0
+            ;;
+        "save-flows-compact")
+            shift
+            save_flows "yes" "$@"
             exit 0
             ;;
         "save-interfaces")
@@ -172,6 +203,10 @@ do
         -h | --help)
             usage
             exit 0
+            ;;
+        -c | --compact)
+            COMPACT="yes"
+            shift
             ;;
         *)
             echo >&2 "$0: unknown command \"$1\" (use --help for help)"
