@@ -3272,14 +3272,15 @@ compose_ipfix_action(struct xlate_ctx *ctx, odp_port_t output_odp_port)
     struct dpif_ipfix *ipfix = ctx->xbridge->ipfix;
     odp_port_t tunnel_out_port = ODPP_NONE;
 
-    if (!ipfix || ctx->xin->flow.in_port.ofp_port == OFPP_NONE) {
+    if (!ipfix) {
         return;
     }
 
     /* For input case, output_odp_port is ODPP_NONE, which is an invalid port
      * number. */
     if (output_odp_port == ODPP_NONE &&
-        !dpif_ipfix_get_bridge_exporter_input_sampling(ipfix)) {
+        (ctx->xin->flow.in_port.ofp_port == OFPP_NONE ||
+         !dpif_ipfix_get_bridge_exporter_input_sampling(ipfix))) {
         return;
     }
 
