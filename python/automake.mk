@@ -53,8 +53,10 @@ ovs_pyfiles = \
 	python/ovs/flows/filter.py \
 	python/ovs/flows/deps.py
 
-ovs_tests = \ 
-	python/ovs/tests/test_kv.py
+ovs_tests = \
+	python/ovs/tests/test_kv.py \
+	python/ovs/tests/test_list.py
+
 
 # These python files are used at build time but not runtime,
 # so they are not installed.
