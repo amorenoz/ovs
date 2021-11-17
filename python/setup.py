@@ -70,6 +70,7 @@ setup_args = dict(
     url='http://www.openvswitch.org/',
     author='Open vSwitch',
     author_email='dev@openvswitch.org',
+    include_package_data=True,
     packages=['ovs', 'ovs.compat', 'ovs.compat.sortedcontainers',
               'ovs.db', 'ovs.unixctl', 'ovs.flows', 'ovs.ovs_ofparse'],
     keywords=['openvswitch', 'ovs', 'OVSDB'],
@@ -90,8 +91,12 @@ setup_args = dict(
     install_requires=['sortedcontainers',
                       'netaddr',
                       'pyparsing',
-                      'click'],
+                      'click',
+                      'rich'],
     scripts=['ovs/ovs_ofparse/ovs-ofparse'],
+    data_files=[
+        ("etc", ["ovs/ovs_ofparse/etc/ovs-ofparse.conf"])
+    ],
     extras_require={':sys_platform == "win32"': ['pywin32 >= 1.0']},
 )
 

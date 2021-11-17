@@ -5,6 +5,12 @@ import json
 import click
 
 from ovs.flows.decoders import FlowEncoder
+from ovs.ovs_ofparse.console import (
+    ConsoleFormatter,
+    print_context,
+    heat_pallete,
+    file_header,
+)
 
 
 class FlowProcessor(object):
@@ -147,3 +153,43 @@ class JSONProcessor(FlowProcessor):
             indent=4,
             cls=FlowEncoder,
         )
+
+
+class ConsoleProcessor(FlowProcessor):
+    """A generic Console Processor that prints flows into the console"""
+
+    def __init__(self, opts, factory, heat_map=[]):
+        super().__init__(opts, factory)
+        self.heat_map = heat_map
+        self.console = ConsoleFormatter(opts)
+        self.flows = dict()
+
+    def start_file(self, name, filename):
+        self.flows_list = list()
+
+    def stop_file(self, name, filename):
+        self.flows[name] = self.flows_list
+
+    def process_flow(self, flow, name):
+        self.flows_list.append(flow)
+
+    def print(self):
+        with print_context(self.console.console, self.opts):
+            for name, flows in self.flows.items():
+                self.console.console.print("\n")
+                self.console.console.print(file_header(name))
+
+                if len(self.heat_map) > 0 and len(self.flows) > 0:
+                    for field in self.heat_map:
+                        values = [f.info.get(field) or 0 for f in flows]
+                        self.console.style.set_value_style(
+                            field, heat_pallete(min(values), max(values))
+                        )
+
+                for flow in flows:
+                    high = None
+                    if self.opts.get("highlight"):
+                        result = self.opts.get("highlight").evaluate(flow)
+                        if result:
+                            high = result.kv
+                    self.console.print_flow(flow, high)

@@ -71,6 +71,15 @@ def validate_input(ctx, param, value):
     callback=validate_input,
 )
 @click.option(
+    "-p",
+    "--paged",
+    help="Page the result (uses $PAGER). If colors are not disabled you might "
+    'need to enable colors on your PAGER, eg: export PAGER="less -r".',
+    is_flag=True,
+    default=False,
+    show_default=True,
+)
+@click.option(
     "-f",
     "--filter",
     help="Filter flows that match the filter expression. Run 'ofparse filter'"
@@ -87,7 +96,7 @@ def validate_input(ctx, param, value):
     show_default=False,
 )
 @click.pass_context
-def maincli(ctx, config, style, filename, filter, highlight):
+def maincli(ctx, config, style, filename, paged, filter, highlight):
     """
     OpenFlow Parse utility.
 
@@ -98,6 +107,7 @@ def maincli(ctx, config, style, filename, filter, highlight):
     """
     ctx.obj = Options()
     ctx.obj["filename"] = filename or None
+    ctx.obj["paged"] = paged
     if filter:
         try:
             ctx.obj["filter"] = OFFilter(filter)
@@ -115,6 +125,7 @@ def maincli(ctx, config, style, filename, filter, highlight):
     parser.read(config_file)
 
     ctx.obj["config"] = parser
+    ctx.obj["style"] = style
 
 
 @maincli.command(hidden=True)

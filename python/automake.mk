@@ -58,7 +58,9 @@ ovs_pyfiles = \
 	python/ovs/ovs_ofparse/openflow.py \
 	python/ovs/ovs_ofparse/ovs-ofparse \
 	python/ovs/ovs_ofparse/process.py \
-	python/ovs/ovs_ofparse/format.py
+	python/ovs/ovs_ofparse/format.py \
+	python/ovs/ovs_ofparse/console.py \
+	python/ovs/ovs_ofparse/etc/ovs-ofparse.conf
 
 
 
@@ -94,7 +96,7 @@ EXTRA_DIST += $(PYFILES)
 PYCOV_CLEAN_FILES += $(PYFILES:.py=.py,cover)
 
 FLAKE8_PYFILES += \
-	$(filter-out python/ovs/compat/% python/ovs/dirs.py,$(PYFILES)) \
+	$(filter-out %.conf python/ovs/compat/% python/ovs/dirs.py,$(PYFILES)) \
 	python/setup.py \
 	python/build/__init__.py \
 	python/build/nroff.py \
