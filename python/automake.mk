@@ -62,7 +62,8 @@ ovs_pyfiles = \
 	python/ovs/ovs_ofparse/console.py \
 	python/ovs/ovs_ofparse/etc/ovs-ofparse.conf \
 	python/ovs/ovs_ofparse/ofp_logic.py \
-	python/ovs/ovs_ofparse/dp_tree.py
+	python/ovs/ovs_ofparse/dp_tree.py \
+	python/ovs/ovs_ofparse/html.py
 
 
 
