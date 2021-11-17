@@ -56,7 +56,8 @@ ovs_pyfiles = \
 	python/ovs/ovs_ofparse/main.py \
 	python/ovs/ovs_ofparse/datapath.py \
 	python/ovs/ovs_ofparse/openflow.py \
-	python/ovs/ovs_ofparse/ovs-ofparse
+	python/ovs/ovs_ofparse/ovs-ofparse \
+	python/ovs/ovs_ofparse/process.py
 
 
 ovs_tests = \

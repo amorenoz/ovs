@@ -2,6 +2,7 @@ import click
 import os.path
 import configparser
 
+from ovs.flows.filter import OFFilter
 from pkg_resources import resource_filename
 
 _default_config_file = "ovs-ofparse.conf"
@@ -63,8 +64,16 @@ def validate_input(ctx, param, value):
     type=click.Path(),
     callback=validate_input,
 )
+@click.option(
+    "-f",
+    "--filter",
+    help="Filter flows that match the filter expression. Run 'ofparse filter'"
+    "for a detailed description of the filtering syntax",
+    type=str,
+    show_default=False,
+)
 @click.pass_context
-def maincli(ctx, config, filename):
+def maincli(ctx, config, filename, filter):
     """
     OpenFlow Parse utility.
 
@@ -75,12 +84,64 @@ def maincli(ctx, config, filename):
     """
     ctx.obj = Options()
     ctx.obj["filename"] = filename or None
+    if filter:
+        try:
+            ctx.obj["filter"] = OFFilter(filter)
+        except Exception as e:
+            raise click.BadParameter("Wrong filter syntax: {}".format(e))
 
     config_file = config or _default_config_path
     parser = configparser.ConfigParser()
     parser.read(config_file)
 
     ctx.obj["config"] = parser
+
+
+@maincli.command(hidden=True)
+@click.pass_context
+def filter(ctx):
+    """
+    \b
+    Filter Syntax
+    *************
+
+     [! | not ] {key}[[.subkey]...] [OPERATOR] {value})] [LOGICAL OPERATOR] ...
+
+    \b
+    Comparison operators are:
+        =   equality
+        <   less than
+        >   more than
+        ~=  masking (valid for IP and Ethernet fields)
+
+    \b
+    Logical operators are:
+        !{expr}:  NOT
+        {expr} && {expr}: AND
+        {expr} || {expr}: OR
+
+    \b
+    Matches and flow metadata:
+        To compare against a match or info field, use the field directly, e.g:
+            priority=100
+            n_bytes>10
+        Use simple keywords for flags:
+            tcp and ip_src=192.168.1.1
+    \b
+    Actions:
+        Actions values might be dictionaries, use subkeys to access individual
+        values, e.g:
+            output.port=3
+        Use simple keywords for flags
+            drop
+
+    \b
+    Examples of valid filters.
+        nw_addr~=192.168.1.1 && (tcp_dst=80 || tcp_dst=443)
+        arp=true && !arp_tsa=192.168.1.1
+        n_bytes>0 && drop=true"""
+    click.echo(ctx.command.get_help(ctx))
+
 
 def main():
     """
