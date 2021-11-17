@@ -1,7 +1,10 @@
 """ Defines common flow processing functionality
 """
 import sys
+import json
 import click
+
+from ovs.flows.decoders import FlowEncoder
 
 
 class FlowProcessor(object):
@@ -111,3 +114,36 @@ class FlowProcessor(object):
                     self.process_flow(flow, alias)
             self.stop_file("stdin", "stdin")
         self.end()
+
+
+class JSONProcessor(FlowProcessor):
+    """A generic JsonProcessor"""
+
+    def __init__(self, opts, factory):
+        super().__init__(opts, factory)
+        self.flows = dict()
+
+    def start_file(self, name, filename):
+        self.flows_list = list()
+
+    def stop_file(self, name, filename):
+        self.flows[name] = self.flows_list
+
+    def process_flow(self, flow, name):
+        self.flows_list.append(flow)
+
+    def json_string(self):
+        if len(self.flows.keys()) > 1:
+            return json.dumps(
+                [
+                    {"name": name, "flows": [flow.dict() for flow in flows]}
+                    for name, flows in self.flows.items()
+                ],
+                indent=4,
+                cls=FlowEncoder,
+            )
+        return json.dumps(
+            [flow.dict() for flow in self.flows_list],
+            indent=4,
+            cls=FlowEncoder,
+        )
