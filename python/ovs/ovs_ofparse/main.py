@@ -53,6 +53,12 @@ def validate_input(ctx, param, value):
     show_default=True,
 )
 @click.option(
+    "--style",
+    help="Select style (defined in config file)",
+    default=None,
+    show_default=True,
+)
+@click.option(
     "-i",
     "--input",
     "filename",
@@ -72,8 +78,16 @@ def validate_input(ctx, param, value):
     type=str,
     show_default=False,
 )
+@click.option(
+    "-l",
+    "--highlight",
+    help="Highlight flows that match the filter expression."
+    " Run 'ofparse filter' for a detailed description of the filtering syntax",
+    type=str,
+    show_default=False,
+)
 @click.pass_context
-def maincli(ctx, config, filename, filter):
+def maincli(ctx, config, style, filename, filter, highlight):
     """
     OpenFlow Parse utility.
 
@@ -87,6 +101,12 @@ def maincli(ctx, config, filename, filter):
     if filter:
         try:
             ctx.obj["filter"] = OFFilter(filter)
+        except Exception as e:
+            raise click.BadParameter("Wrong filter syntax: {}".format(e))
+
+    if highlight:
+        try:
+            ctx.obj["highlight"] = OFFilter(highlight)
         except Exception as e:
             raise click.BadParameter("Wrong filter syntax: {}".format(e))
 
