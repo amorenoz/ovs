@@ -51,7 +51,13 @@ ovs_pyfiles = \
 	python/ovs/flows/ofp_act.py \
 	python/ovs/flows/odp.py \
 	python/ovs/flows/filter.py \
-	python/ovs/flows/deps.py
+	python/ovs/flows/deps.py \
+	python/ovs/ovs_ofparse/__init__.py \
+	python/ovs/ovs_ofparse/main.py \
+	python/ovs/ovs_ofparse/datapath.py \
+	python/ovs/ovs_ofparse/openflow.py \
+	python/ovs/ovs_ofparse/ovs-ofparse
+
 
 ovs_tests = \
 	python/ovs/tests/test_kv.py \
