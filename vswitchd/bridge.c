@@ -845,7 +845,10 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
      *
      * This is mostly an update to bridge data structures. Nothing is pushed
      * down to ofproto or lower layers. */
+    VLOG_DBG("delay_analysis: bridge_reconfigure deleting ports");
+
     add_del_bridges(ovs_cfg);
+
     HMAP_FOR_EACH (br, node, &all_bridges) {
         bridge_collect_wanted_ports(br, &br->wanted_ports);
         bridge_del_ports(br, &br->wanted_ports);
@@ -869,6 +872,7 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
             bridge_delete_or_reconfigure_ports(br);
         }
     }
+    VLOG_DBG("delay_analysis: bridge_reconfigure ports deleted");
 
     /* Finish pushing configuration changes to the ofproto layer:
      *
@@ -892,6 +896,7 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
         }
     }
 
+    VLOG_DBG("delay_analysis: bridge_reconfigure creating ports");
     config_ofproto_types(&ovs_cfg->other_config);
 
     HMAP_FOR_EACH (br, node, &all_bridges) {
@@ -902,6 +907,7 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
     reconfigure_system_stats(ovs_cfg);
     datapath_reconfigure(ovs_cfg);
 
+
     /* Complete the configuration. */
     sflow_bridge_number = 0;
     collect_in_band_managers(ovs_cfg, &managers, &n_managers);
@@ -910,9 +916,12 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
 
         /* We need the datapath ID early to allow LACP ports to use it as the
          * default system ID. */
+        VLOG_DBG("delay_analysis: (%s) configuring bridge datapath", br->name);
         bridge_configure_datapath_id(br);
 
         HMAP_FOR_EACH (port, hmap_node, &br->ports) {
+            VLOG_DBG("delay_analysis: (%s) configuring port: %s",
+                     br->name, port->name);
             struct iface *iface;
 
             port_configure(port);
@@ -931,6 +940,8 @@ bridge_reconfigure(const struct ovsrec_open_vswitch *ovs_cfg)
                 ofproto_port_set_config(br->ofproto, iface->ofp_port,
                                         &iface->cfg->other_config);
             }
+            VLOG_DBG("delay_analysis: (%s) port configured: %s",
+                     br->name, port->name);
         }
         bridge_configure_mirrors(br);
         bridge_configure_forward_bpdu(br);
@@ -2110,9 +2121,14 @@ iface_create(struct bridge *br, const struct ovsrec_interface *iface_cfg,
         return false;
     }
 
+    // This happens quite early, delay might start here:
+    VLOG_DBG("delay_analysis: (%s) netdev / ofp_port created",
+             iface_cfg->name);
+
     /* Get or create the port structure. */
     port = port_lookup(br, port_cfg->name);
     if (!port) {
+        // This should not take look as it's just struct initialization
         port = port_create(br, port_cfg);
     }
 
@@ -2130,9 +2146,15 @@ iface_create(struct bridge *br, const struct ovsrec_interface *iface_cfg,
     hmap_insert(&br->ifaces, &iface->ofp_port_node,
                 hash_ofp_port(ofp_port));
 
+    VLOG_DBG("delay_analysis: (%s) iface structure created",
+             iface->cfg->name);
+
     /* Populate initial status in database. */
     iface_refresh_stats(iface);
     iface_refresh_netdev_status(iface);
+
+    VLOG_DBG("delay_analysis: (%s) netdev status updated",
+             iface->cfg->name);
 
     /* Add bond fake iface if necessary. */
     if (port_is_bond_fake_iface(port)) {
@@ -2455,6 +2477,8 @@ iface_refresh_netdev_status(struct iface *iface)
 
     if (!netdev_get_status(iface->netdev, &smap)) {
         ovsrec_interface_set_status(iface->cfg, &smap);
+        VLOG_DBG("delay_analysis: (%s) writing non-null netdev status",
+                 iface->cfg->name);
     } else {
         ovsrec_interface_set_status(iface->cfg, NULL);
     }
@@ -2465,6 +2489,8 @@ iface_refresh_netdev_status(struct iface *iface)
     if (!error) {
         const char *state = flags & NETDEV_UP ? "up" : "down";
 
+        VLOG_DBG("delay_analysis: (%s) writing state = %s",
+                 iface->cfg->name, state);
         ovsrec_interface_set_admin_state(iface->cfg, state);
     } else {
         ovsrec_interface_set_admin_state(iface->cfg, NULL);
@@ -2502,6 +2528,8 @@ iface_refresh_netdev_status(struct iface *iface)
 
         snprintf(mac_string, sizeof mac_string,
                  ETH_ADDR_FMT, ETH_ADDR_ARGS(mac));
+        VLOG_DBG("delay_analysis: (%s) writing mac in use= %s",
+                 iface->cfg->name, mac_string);
         ovsrec_interface_set_mac_in_use(iface->cfg, mac_string);
     } else {
         ovsrec_interface_set_mac_in_use(iface->cfg, NULL);
@@ -3140,6 +3168,7 @@ stats_update_wait(void)
 static void
 run_status_update(void)
 {
+    VLOG_DBG("delay_analysis: status_udpate");
     if (!status_txn) {
         uint64_t seq;
 
@@ -3181,7 +3210,9 @@ run_status_update(void)
     if (status_txn) {
         enum ovsdb_idl_txn_status status;
 
+    	VLOG_DBG("delay_analysis: commiting status udpate");
         status = ovsdb_idl_txn_commit(status_txn);
+        VLOG_DBG("delay_analysis: status transaction returned %d", status);
         if (status != TXN_INCOMPLETE) {
             ovsdb_idl_txn_destroy(status_txn);
             status_txn = NULL;
@@ -3205,13 +3236,16 @@ run_status_update(void)
 
                 txn = ovsdb_idl_txn_create(idl);
                 bridge_aa_refresh_queued(br);
+            	VLOG_DBG("delay_analysis: committing status transaction");
                 ovsdb_idl_txn_commit(txn);
                 ovsdb_idl_txn_destroy(txn);
+            	VLOG_DBG("delay_analysis: status transaction committed and destroyed");
             }
         }
 
         aa_refresh_timer = time_msec() + AA_REFRESH_INTERVAL;
     }
+    VLOG_DBG("delay_analysis: status_udpate done");
 }
 
 static void
@@ -3223,7 +3257,9 @@ status_update_wait(void)
      * 'STATUS_CHECK_AGAIN_MSEC'.  Otherwise, waits on the global connectivity
      * sequence number. */
     if (status_txn) {
+    	VLOG_DBG("delay_analysis: status_udpate wait!!");
         ovsdb_idl_txn_wait(status_txn);
+    	VLOG_DBG("delay_analysis: status_udpate wait done!!");
     } else if (status_txn_try_again) {
         poll_timer_wait_until(time_msec() + STATUS_CHECK_AGAIN_MSEC);
     } else {
@@ -3259,6 +3295,7 @@ bridge_run(void)
     const struct ovsrec_open_vswitch *cfg;
 
     ovsrec_open_vswitch_init(&null_cfg);
+    VLOG_DBG("delay_analysis: bridge_run start iteration");
 
     ovsdb_idl_run(idl);
 
@@ -3328,7 +3365,9 @@ bridge_run(void)
 
         idl_seqno = ovsdb_idl_get_seqno(idl);
         txn = ovsdb_idl_txn_create(idl);
+        VLOG_DBG("delay_analysis: bridge_reconfigure start");
         bridge_reconfigure(cfg ? cfg : &null_cfg);
+        VLOG_DBG("delay_analysis: bridge reconfigured");
 
         if (cfg) {
             ovsrec_open_vswitch_set_cur_cfg(cfg, cfg->next_cfg);
@@ -3341,10 +3380,14 @@ bridge_run(void)
         if (initial_config_done) {
             /* Always sets the 'status_txn_try_again' to check again,
              * in case that this transaction fails. */
+            VLOG_DBG("delay_analysis: committing transaction");
             status_txn_try_again = true;
-            ovsdb_idl_txn_commit(txn);
+            enum ovsdb_idl_txn_status status = ovsdb_idl_txn_commit(txn);
+            VLOG_DBG("delay_analysis: transaction returned %d", status);
             ovsdb_idl_txn_destroy(txn);
+            VLOG_DBG("delay_analysis: transaction committed and destroyed");
         } else {
+            VLOG_DBG("delay_analysis: keeping transaction, initial_config");
             initial_config_done = true;
             daemonize_txn = txn;
         }
@@ -3366,9 +3409,11 @@ bridge_run(void)
         }
     }
 
+    VLOG_DBG("delay_analysis: starting status_update");
     run_stats_update();
     run_status_update();
     run_system_stats();
+    VLOG_DBG("delay_analysis: bridge_run done iteration");
 }
 
 void
@@ -3376,6 +3421,7 @@ bridge_wait(void)
 {
     struct sset types;
     const char *type;
+    VLOG_DBG("delay_analysis: bridge wait start!");
 
     ovsdb_idl_wait(idl);
     if (daemonize_txn) {
@@ -3402,6 +3448,7 @@ bridge_wait(void)
     }
 
     system_stats_wait();
+    VLOG_DBG("delay_analysis: bridge wait done!");
 }
 
 /* Adds some memory usage statistics for bridges into 'usage', for use with

@@ -150,6 +150,7 @@ do_start_ovsdb () {
         start_daemon "$OVSDB_SERVER_PRIORITY" "$OVSDB_SERVER_WRAPPER" "$@" \
             || return 1
 
+        ovs-appctl -t ovsdb-server vlog/set jsonrpc:file:dbg;
         # Initialize database settings.
         ovs_vsctl -- init -- set Open_vSwitch . db-version="$schemaver" \
             || return 1
@@ -219,6 +220,21 @@ do_start_forwarding () {
 
         start_daemon "$OVS_VSWITCHD_PRIORITY" "$OVS_VSWITCHD_WRAPPER" "$@" ||
             return 1
+
+        mkdir -p /tmp/ovs-monitoring
+        setsid /bin/sh -c '\
+touch /tmp/ovs-monitoring/running; \
+top -bH1 -d1 -w 500 > /tmp/ovs-monitoring/top & \
+ovs-appctl vlog/set bridge:file:dbg; \
+ovs-appctl vlog/set jsonrpc:file:dbg; \
+while sleep 1; do \
+    echo "" >> /tmp/ovs-monitoring/ps;
+    echo $(date) >> /tmp/ovs-monitoring/ps; \
+    ps -mo pid,tid,%cpu,psr,cmd -p $(pidof -s ovs-vswitchd) >> /tmp/ovs-monitoring/ps; \
+    [ -f /tmp/ovs-monitoring/kill ] && break; \
+done; \
+rm /tmp/ovs-monitoring/running; \
+rm /tmp/ovs-monitoring/kill' 2>/tmp/ovs-monitoring/err 1>/tmp/ovs-monitoring/out  &
     fi
 }
 
@@ -259,6 +275,7 @@ stop_forwarding () {
     if test X"$OVS_VSWITCHD" = Xyes; then
         stop_daemon ovs-vswitchd
     fi
+    [ -f /tmp/ovs-monitoring/running ] && touch /tmp/ovs-monitoring/kill
 }
 
 stop_ovs_ipsec () {
