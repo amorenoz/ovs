@@ -1297,7 +1297,14 @@ bond_rebalance(struct bond *bond)
 {
     struct bond_entry *e, *hashes[BOND_BUCKETS];
     struct bond_member *member;
-    struct ovs_list bals;
+
+    /* We need a full struct bond_member to hold a ovs_list that can be used
+     * to store the balls list because inside the insert_bals assumes accesses
+     * fields of struct bond_members.
+     */
+    struct bond_member bals_member = {0};
+    struct ovs_list *bals = &bals_member.bal_node;
+
     bool rebalanced = false;
     bool use_recirc;
 
@@ -1339,20 +1346,20 @@ bond_rebalance(struct bond *bond)
      *
      * XXX This is O(n**2) in the number of members but it could be O(n lg n)
      * with a proper list sort algorithm. */
-    ovs_list_init(&bals);
+    ovs_list_init(bals);
     HMAP_FOR_EACH (member, hmap_node, &bond->members) {
         if (member->enabled) {
-            insert_bal(&bals, member);
+            insert_bal(bals, member);
         }
     }
-    log_bals(bond, &bals);
+    log_bals(bond, bals);
 
     /* Shift load from the most-loaded members to the least-loaded members. */
-    while (!ovs_list_is_short(&bals)) {
+    while (!ovs_list_is_short(bals)) {
         struct bond_member *from
-            = bond_member_from_bal_node(ovs_list_front(&bals));
+            = bond_member_from_bal_node(ovs_list_front(bals));
         struct bond_member *to
-            = bond_member_from_bal_node(ovs_list_back(&bals));
+            = bond_member_from_bal_node(ovs_list_back(bals));
         uint64_t overload;
 
         overload = from->tx_bytes - to->tx_bytes;
@@ -1385,8 +1392,8 @@ bond_rebalance(struct bond *bond)
             ovs_list_remove(&e->list_node);
 
             /* Re-sort 'bals'. */
-            reinsert_bal(&bals, from);
-            reinsert_bal(&bals, to);
+            reinsert_bal(bals, from);
+            reinsert_bal(bals, to);
         }
         rebalanced = true;
     }
