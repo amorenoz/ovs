@@ -6221,6 +6221,16 @@ static void
 compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc,
                          bool is_last_action)
 {
+   VLOG_INFO("___ init compose_conntrack_action"
+             "recirc_id = 0x%x "
+             "ctx->xin.flow.in_port.ofp_port = %d "
+             "ctx->xin.base_flow.in_port.ofp_port = %d "
+             "ctx->frozen_statemetadata.in_port = %d ",
+             ctx->xin? ctx->xin->flow.recirc_id: -1,
+             ctx->xin? ctx->xin->flow.in_port.ofp_port: 101,
+             ctx->base_flow.in_port.ofp_port,
+             ((ctx->xin && ctx->xin->frozen_state)?
+             ctx->xin->frozen_state->metadata.in_port: 101));
     uint16_t zone;
     if (ofc->zone_src.field) {
         union mf_subvalue value;
@@ -6285,6 +6295,19 @@ compose_conntrack_action(struct xlate_ctx *ctx, struct ofpact_conntrack *ofc,
     if (ofc->recirc_table != NX_CT_RECIRC_NONE) {
         ctx->conntracked = true;
         compose_recirculate_and_fork(ctx, ofc->recirc_table, zone);
+
+        VLOG_INFO("___ after compose_recirculate_and_fork "
+                  "recirc_table = 0x%x "
+                  "recirc_id = 0x%x "
+                  "ctx->xin.flow.in_port.ofp_port = %d "
+                  "ctx->xin.base_flow.in_port.ofp_port = %d "
+                  "ctx->frozen_statemetadata.in_port = %d ",
+                  ofc->recirc_table,
+                  ctx->xin->flow.recirc_id,
+                  ctx->xin? ctx->xin->flow.in_port.ofp_port: 101,
+                  ctx->base_flow.in_port.ofp_port,
+                  ((ctx->xin && ctx->xin->frozen_state)?
+                  ctx->xin->frozen_state->metadata.in_port: 101));
     }
 
     ctx->ct_nat_action = NULL;
@@ -6799,6 +6822,17 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         return;
     }
 
+   VLOG_INFO("___ init do_compose_actions"
+             "recirc_id = 0x%x "
+             "ctx->xin.flow.in_port.ofp_port = %d "
+             "ctx->xin.base_flow.in_port.ofp_port = %d "
+             "ctx->frozen_statemetadata.in_port = %d ",
+             ctx->xin? ctx->xin->flow.recirc_id: -1,
+             ctx->xin? ctx->xin->flow.in_port.ofp_port: 101,
+             ctx->base_flow.in_port.ofp_port,
+             ((ctx->xin && ctx->xin->frozen_state)?
+             ctx->xin->frozen_state->metadata.in_port: 101));
+
     bool exit = false;
     OFPACT_FOR_EACH (a, ofpacts, ofpacts_len) {
         struct ofpact_controller *controller;
@@ -6831,6 +6865,18 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             xlate_report(ctx, OFT_ACTION, "%s", ds_cstr(&s));
             ds_destroy(&s);
         }
+
+        VLOG_INFO("___ init compose_action_iter type %d: "
+                  "recirc_id = 0x%x "
+                  "ctx->xin.flow.in_port.ofp_port = %d "
+                  "ctx->xin.base_flow.in_port.ofp_port = %d "
+                  "ctx->frozen_statemetadata.in_port = %d ",
+                  a->type,
+                  ctx->xin? ctx->xin->flow.recirc_id: -1,
+                  ctx->xin? ctx->xin->flow.in_port.ofp_port: 101,
+                  ctx->base_flow.in_port.ofp_port,
+                  ((ctx->xin && ctx->xin->frozen_state)?
+                  ctx->xin->frozen_state->metadata.in_port: 101));
 
         switch (a->type) {
         case OFPACT_OUTPUT:
@@ -7586,6 +7632,13 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         .action_set_has_group = false,
         .action_set = OFPBUF_STUB_INITIALIZER(action_set_stub),
     };
+    VLOG_INFO("___ do_xlate_actions: "
+              "recirc_id 0x%x "
+              "ctx.xin.flow.in_port.ofp_port = %d "
+              "ctx.xin.base_flow.in_port.ofp_port = %d ",
+              ctx.xin? ctx.xin->flow.recirc_id: 101,
+              ctx.xin? ctx.xin->flow.in_port.ofp_port: 101,
+              ctx.base_flow.in_port.ofp_port);
 
     /* 'base_flow' reflects the packet as it came in, but we need it to reflect
      * the packet as the datapath will treat it for output actions. Our
@@ -7677,6 +7730,18 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         }
 
         xin->trace = old_trace;
+
+        VLOG_INFO("___ do_xlate_actions: thraw "
+                  "recirc_id= 0x%x "
+                  "xin.flow.in_port.ofp_port = %d "
+                  "ctx.base_flow.in_port.ofp_port = %d "
+                  "xin.frozen_statemetadata.in_port = %d ",
+                  ctx.xin? ctx.xin->flow.recirc_id: 101,
+                  ctx.xin? ctx.xin->flow.in_port.ofp_port: 101,
+                  ctx.base_flow.in_port.ofp_port,
+                  ((ctx.xin && ctx.xin->frozen_state)?
+                  ctx.xin->frozen_state->metadata.in_port: 101));
+
     } else if (OVS_UNLIKELY(flow->recirc_id)) {
         xlate_report_error(&ctx,
                            "Recirculation context not found for ID %"PRIx32,
@@ -7712,6 +7777,19 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
      * flow->in_port is the ultimate input port of the packet.) */
     struct xport *in_port = get_ofp_port(xbridge,
                                          ctx.base_flow.in_port.ofp_port);
+    VLOG_INFO("___ get aproximate input port"
+             "aproximate in_port 0x%x "
+             "recirc_id = 0x%x "
+             "ctx.xin.flow.in_port.ofp_port = %d "
+             "ctx.xin.base_flow.in_port.ofp_port = %d "
+             "ctx.frozen_statemetadata.in_port = %d ",
+             in_port? in_port->ofp_port: 101,
+             ctx.xin? ctx.xin->flow.recirc_id: -1,
+             ctx.xin? ctx.xin->flow.in_port.ofp_port: 101,
+             ctx.base_flow.in_port.ofp_port,
+             ((ctx.xin && ctx.xin->frozen_state)?
+             ctx.xin->frozen_state->metadata.in_port: 101));
+
     if (in_port && !in_port->peer) {
         ctx.xin->xport_uuid = in_port->uuid;
     }
@@ -7776,6 +7854,16 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
                            in_port->xbundle->name);
     } else {
         /* Sampling is done on initial reception; don't redo after thawing. */
+        VLOG_INFO("___ IPFIX out"
+                  "recirc_id = 0x%x "
+                  "ctx.xin.flow.in_port.ofp_port = %d "
+                  "ctx.xin.base_flow.in_port.ofp_port = %d "
+                  "ctx.frozen_statemetadata.in_port = %d ",
+                  ctx.xin->flow.recirc_id,
+                  ctx.xin? ctx.xin->flow.in_port.ofp_port: 101,
+                  ctx.base_flow.in_port.ofp_port,
+                  ((ctx.xin && ctx.xin->frozen_state)?
+                  ctx.xin->frozen_state->metadata.in_port: 101));
         unsigned int user_cookie_offset = 0;
         if (!xin->frozen_state) {
             user_cookie_offset = compose_sflow_action(&ctx);
@@ -7846,6 +7934,16 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         if (user_cookie_offset) {
             fix_sflow_action(&ctx, user_cookie_offset);
         }
+        VLOG_INFO("___ LINE 7914"
+                  "recirc_id = 0x%x "
+                  "ctx.xin.flow.in_port.ofp_port = %d "
+                  "ctx.xin.base_flow.in_port.ofp_port = %d "
+                  "ctx.frozen_statemetadata.in_port = %d ",
+                  ctx.xin->flow.recirc_id,
+                  ctx.xin? ctx.xin->flow.in_port.ofp_port: 101,
+                  ctx.base_flow.in_port.ofp_port,
+                  ((ctx.xin && ctx.xin->frozen_state)?
+                  ctx.xin->frozen_state->metadata.in_port: 101));
     }
 
     if (nl_attr_oversized(ctx.odp_actions->size)) {
@@ -7947,6 +8045,16 @@ exit:
         ctx.error = XLATE_OK;
     }
 
+    VLOG_INFO("___ LINE 8025"
+              "recirc_id = 0x%x "
+              "ctx->xin.flow.in_port.ofp_port = %d "
+              "ctx->xin.base_flow.in_port.ofp_port = %d "
+              "ctx->frozen_statemetadata.in_port = %d ",
+              ctx.xin->flow.recirc_id,
+              ctx.xin? ctx.xin->flow.in_port.ofp_port: 101,
+              ctx.base_flow.in_port.ofp_port,
+              ((ctx.xin && ctx.xin->frozen_state)?
+              ctx.xin->frozen_state->metadata.in_port: 101));
     return ctx.error;
 }
 
