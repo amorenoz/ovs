@@ -41,11 +41,10 @@ struct shash {
                         BUILD_ASSERT_TYPE(SHASH_NODE, struct shash_node *), \
                         BUILD_ASSERT_TYPE(SHASH, struct shash *))
 
-#define SHASH_FOR_EACH_SAFE(SHASH_NODE, NEXT, SHASH)        \
+#define SHASH_FOR_EACH_SAFE(SHASH_NODE, SHASH)        \
     HMAP_FOR_EACH_SAFE_INIT (                               \
-        SHASH_NODE, NEXT, node, &(SHASH)->map,              \
+        SHASH_NODE, node, &(SHASH)->map,              \
         BUILD_ASSERT_TYPE(SHASH_NODE, struct shash_node *), \
-        BUILD_ASSERT_TYPE(NEXT, struct shash_node *),       \
         BUILD_ASSERT_TYPE(SHASH, struct shash *))
 
 void shash_init(struct shash *);

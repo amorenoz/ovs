@@ -45,11 +45,10 @@ struct smap_node {
                         BUILD_ASSERT_TYPE(SMAP_NODE, struct smap_node *), \
                         BUILD_ASSERT_TYPE(SMAP, struct smap *))
 
-#define SMAP_FOR_EACH_SAFE(SMAP_NODE, NEXT, SMAP)           \
+#define SMAP_FOR_EACH_SAFE(SMAP_NODE, SMAP)           \
     HMAP_FOR_EACH_SAFE_INIT (                               \
-        SMAP_NODE, NEXT, node, &(SMAP)->map,                \
+        SMAP_NODE, node, &(SMAP)->map,                \
         BUILD_ASSERT_TYPE(SMAP_NODE, struct smap_node *),   \
-        BUILD_ASSERT_TYPE(NEXT, struct smap_node *),        \
         BUILD_ASSERT_TYPE(SMAP, struct smap *))
 
 /* Initializer for an immutable struct smap 'SMAP' that contains one or two
