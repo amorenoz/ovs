@@ -93,15 +93,15 @@ static inline bool ovs_list_is_short(const struct ovs_list *);
          CONDITION_MULTIVAR(ITER_VAR(VAR) != (LIST), VAR, MEMBER);              \
          UPDATE_MULTIVAR((ITER_VAR(VAR) = ITER_VAR(VAR)->prev), VAR))
 
-#define LIST_FOR_EACH_REVERSE_SAFE(VAR, PREV, MEMBER, LIST)                     \
-    for (INIT_CONTAINER_MULTIVAR_SAFE(VAR, MEMBER, (LIST)->prev, (void) PREV);  \
+#define LIST_FOR_EACH_REVERSE_SAFE(VAR, MEMBER, LIST)                           \
+    for (INIT_CONTAINER_MULTIVAR_SAFE(VAR, MEMBER, (LIST)->prev, (void) 0);     \
          CONDITION_MULTIVAR_SAFE(ITER_VAR(VAR) != (LIST),                       \
                                  ITER_NEXT_VAR(VAR) = ITER_VAR(VAR)->prev,      \
                                  VAR,  MEMBER);                                 \
          UPDATE_MULTIVAR_SAFE(VAR))
 
-#define LIST_FOR_EACH_SAFE(VAR, NEXT, MEMBER, LIST)                             \
-    for (INIT_CONTAINER_MULTIVAR_SAFE(VAR, MEMBER, (LIST)->next, (void) NEXT);  \
+#define LIST_FOR_EACH_SAFE(VAR, MEMBER, LIST)                                   \
+    for (INIT_CONTAINER_MULTIVAR_SAFE(VAR, MEMBER, (LIST)->next, (void) 0);     \
          CONDITION_MULTIVAR_SAFE(ITER_VAR(VAR) != (LIST),                       \
                                  ITER_NEXT_VAR(VAR) = ITER_VAR(VAR)->next,      \
                                  VAR,  MEMBER);                                 \
