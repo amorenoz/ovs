@@ -178,11 +178,10 @@ bool hmap_contains(const struct hmap *, const struct hmap_node *);
 
 /* Safe when NODE may be freed (not needed when NODE may be removed from the
  * hash map but its members remain accessible and intact). */
-#define HMAP_FOR_EACH_SAFE(NODE, NEXT, MEMBER, HMAP) \
-    HMAP_FOR_EACH_SAFE_INIT(NODE, NEXT, MEMBER, HMAP, (void) NEXT)
-#define HMAP_FOR_EACH_SAFE_INIT(NODE, NEXT, MEMBER, HMAP, ...)                  \
-    for (INIT_MULTIVAR_SAFE_EXP(NODE, MEMBER, hmap_first(HMAP), (void) NEXT,    \
-                            __VA_ARGS__);                                       \
+#define HMAP_FOR_EACH_SAFE(NODE, MEMBER, HMAP)                                  \
+    HMAP_FOR_EACH_SAFE_INIT(NODE, MEMBER, HMAP, (void) 0)
+#define HMAP_FOR_EACH_SAFE_INIT(NODE, MEMBER, HMAP, ...)                        \
+    for (INIT_MULTIVAR_SAFE_EXP(NODE, MEMBER, hmap_first(HMAP), __VA_ARGS__);   \
          CONDITION_MULTIVAR_SAFE(ITER_VAR(NODE) != NULL,                        \
                         ITER_NEXT_VAR(NODE) = hmap_next(HMAP, ITER_VAR(NODE)),  \
                         NODE, MEMBER);						\
