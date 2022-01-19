@@ -186,6 +186,28 @@ OVS_NO_RETURN void ovs_assert_failure(const char *, const char *, const char *);
 #define UPDATE_MULTIVAR(EXPR, VAR)                                              \
     ((EXPR), (VAR) = NULL)
 
+
+/* In the safe version of the multi-variable container iteration, the next value
+ * of the iterator is precalculated on the condition expression. This allows for
+ * the iterator to be freed inside the loop.
+ *
+ * The next value of the iterator is stored in a variable declared in the
+ * INIT_CONTAINER_MULTIVAR_SAFE macro and its name is ITER_NEXT_VAR(OBJECT).
+ * */
+#define ITER_NEXT_VAR(NAME) NAME ## __iterator__next__
+
+#define INIT_CONTAINER_MULTIVAR_SAFE(VAR, MEMBER, POINTER, ...)                \
+    OVS_TYPEOF(VAR->MEMBER) *ITER_VAR(VAR) = ( __VA_ARGS__ , POINTER),         \
+        *ITER_NEXT_VAR(VAR) = NULL
+
+#define CONDITION_MULTIVAR_SAFE(EXPR, NEXT_EXPR, VAR, MEMBER)                  \
+         ((EXPR) &&                                                            \
+          (VAR = OBJECT_CONTAINING(ITER_VAR(VAR), VAR, MEMBER),                \
+          (NEXT_EXPR), 1))
+
+#define UPDATE_MULTIVAR_SAFE(VAR)                                              \
+    UPDATE_MULTIVAR(ITER_VAR(VAR) = ITER_NEXT_VAR(VAR), VAR)
+
 /* Returns the number of elements in ARRAY. */
 #define ARRAY_SIZE(ARRAY) __ARRAY_SIZE(ARRAY)
 
