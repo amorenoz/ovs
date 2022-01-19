@@ -234,7 +234,7 @@ test_hmap_for_each_safe(hash_func *hash)
             struct element elements[MAX_ELEMS];
             int values[MAX_ELEMS];
             struct hmap hmap;
-            struct element *e, *next;
+            struct element *e;
             size_t n_remaining;
             int i;
 
@@ -242,7 +242,7 @@ test_hmap_for_each_safe(hash_func *hash)
 
             i = 0;
             n_remaining = n;
-            HMAP_FOR_EACH_SAFE (e, next, node, &hmap) {
+            HMAP_FOR_EACH_SAFE (e, node, &hmap) {
                 assert(i < n);
                 if (pattern & (1ul << e->value)) {
                     size_t j;

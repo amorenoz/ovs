@@ -41,10 +41,9 @@ struct simap_node {
                         BUILD_ASSERT_TYPE(SIMAP_NODE, struct simap_node *), \
                         BUILD_ASSERT_TYPE(SIMAP, struct simap *))
 
-#define SIMAP_FOR_EACH_SAFE(SIMAP_NODE, NEXT, SIMAP)                    \
-    HMAP_FOR_EACH_SAFE_INIT (SIMAP_NODE, NEXT, node, &(SIMAP)->map,     \
+#define SIMAP_FOR_EACH_SAFE(SIMAP_NODE, SIMAP)                    \
+    HMAP_FOR_EACH_SAFE_INIT (SIMAP_NODE, node, &(SIMAP)->map,     \
                         BUILD_ASSERT_TYPE(SIMAP_NODE, struct simap_node *), \
-                        BUILD_ASSERT_TYPE(NEXT, struct simap_node *),   \
                         BUILD_ASSERT_TYPE(SIMAP, struct simap *))
 
 void simap_init(struct simap *);
