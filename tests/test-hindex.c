@@ -256,7 +256,7 @@ test_hindex_for_each_safe(hash_func *hash)
             struct element elements[MAX_ELEMS];
             int values[MAX_ELEMS];
             struct hindex hindex;
-            struct element *e, *next;
+            struct element *e;
             size_t n_remaining;
             int i;
 
@@ -264,7 +264,7 @@ test_hindex_for_each_safe(hash_func *hash)
 
             i = 0;
             n_remaining = n;
-            HINDEX_FOR_EACH_SAFE (e, next, node, &hindex) {
+            HINDEX_FOR_EACH_SAFE (e, node, &hindex) {
                 assert(i < n);
                 if (pattern & (1ul << e->value)) {
                     size_t j;
