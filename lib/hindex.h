@@ -128,18 +128,20 @@ void hindex_remove(struct hindex *, struct hindex_node *);
  * Evaluates HASH only once.
  */
 #define HINDEX_FOR_EACH_WITH_HASH(NODE, MEMBER, HASH, HINDEX)               \
-    for (INIT_CONTAINER(NODE, hindex_node_with_hash(HINDEX, HASH), MEMBER); \
-         NODE != OBJECT_CONTAINING(NULL, NODE, MEMBER);                     \
-         ASSIGN_CONTAINER(NODE, (NODE)->MEMBER.s, MEMBER))
+    for (INIT_MULTIVAR(NODE, MEMBER, hindex_node_with_hash(HINDEX, HASH));  \
+         CONDITION_MULTIVAR(ITER_VAR(NODE) != NULL, NODE, MEMBER);          \
+         UPDATE_MULTIVAR(ITER_VAR(NODE) = ITER_VAR(NODE)->s, NODE))
 
 /* Safe when NODE may be freed (not needed when NODE may be removed from the
  * hash map but its members remain accessible and intact). */
-#define HINDEX_FOR_EACH_WITH_HASH_SAFE(NODE, NEXT, MEMBER, HASH, HINDEX) \
-    for (INIT_CONTAINER(NODE, hindex_node_with_hash(HINDEX, HASH), MEMBER); \
-         (NODE != OBJECT_CONTAINING(NULL, NODE, MEMBER)                 \
-          ? INIT_CONTAINER(NEXT, (NODE)->MEMBER.s, MEMBER), 1           \
-          : 0);                                                         \
-         (NODE) = (NEXT))
+#define HINDEX_FOR_EACH_WITH_HASH_SAFE(NODE, NEXT, MEMBER, HASH, HINDEX)    \
+    for (INIT_MULTIVAR_SAFE_EXP(NODE, MEMBER,                               \
+                                hindex_node_with_hash(HINDEX, HASH),        \
+                                (void) NEXT);                               \
+         CONDITION_MULTIVAR_SAFE(ITER_VAR(NODE) != NULL,                    \
+                                 ITER_NEXT_VAR(NODE) = ITER_VAR(NODE)->s,   \
+                                 NODE, MEMBER);                             \
+         UPDATE_MULTIVAR_SAFE(NODE))
 
 /* Returns the head node in 'hindex' with the given 'hash', or a null pointer
  * if no nodes have that hash value. */
@@ -157,19 +159,21 @@ hindex_node_with_hash(const struct hindex *hindex, size_t hash)
 /* Iteration. */
 
 /* Iterates through every node in HINDEX. */
-#define HINDEX_FOR_EACH(NODE, MEMBER, HINDEX)                           \
-    for (INIT_CONTAINER(NODE, hindex_first(HINDEX), MEMBER);            \
-         NODE != OBJECT_CONTAINING(NULL, NODE, MEMBER);                 \
-         ASSIGN_CONTAINER(NODE, hindex_next(HINDEX, &(NODE)->MEMBER), MEMBER))
+#define HINDEX_FOR_EACH(NODE, MEMBER, HINDEX)                                   \
+    for (INIT_MULTIVAR(NODE, MEMBER, hindex_first(HINDEX));                     \
+         CONDITION_MULTIVAR(ITER_VAR(NODE) != NULL, NODE, MEMBER);              \
+         UPDATE_MULTIVAR(ITER_VAR(NODE) = hindex_next(HINDEX, ITER_VAR(NODE)),  \
+                         NODE))
 
 /* Safe when NODE may be freed (not needed when NODE may be removed from the
  * hash index but its members remain accessible and intact). */
-#define HINDEX_FOR_EACH_SAFE(NODE, NEXT, MEMBER, HINDEX)              \
-    for (INIT_CONTAINER(NODE, hindex_first(HINDEX), MEMBER);          \
-         (NODE != OBJECT_CONTAINING(NULL, NODE, MEMBER)                 \
-          ? INIT_CONTAINER(NEXT, hindex_next(HINDEX, &(NODE)->MEMBER), MEMBER), 1 \
-          : 0);                                                         \
-         (NODE) = (NEXT))
+#define HINDEX_FOR_EACH_SAFE(NODE, NEXT, MEMBER, HINDEX)                        \
+    for (INIT_MULTIVAR_SAFE_EXP(NODE, MEMBER, hindex_first(HINDEX), \
+                                (void) NEXT);                                   \
+         CONDITION_MULTIVAR_SAFE(ITER_VAR(NODE) != NULL,                        \
+              ITER_NEXT_VAR(NODE) = hindex_next(HINDEX, ITER_VAR(NODE)),        \
+              NODE, MEMBER);                                                    \
+         UPDATE_MULTIVAR_SAFE(NODE))
 
 struct hindex_node *hindex_first(const struct hindex *);
 struct hindex_node *hindex_next(const struct hindex *,
