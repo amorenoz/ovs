@@ -366,34 +366,37 @@ rculist_is_singleton_protected(const struct rculist *list)
 }
 
 #define RCULIST_FOR_EACH(ITER, MEMBER, RCULIST)                         \
-    for (INIT_CONTAINER(ITER, rculist_next(RCULIST), MEMBER);           \
-         &(ITER)->MEMBER != (RCULIST);                                  \
-         ASSIGN_CONTAINER(ITER, rculist_next(&(ITER)->MEMBER), MEMBER))
-#define RCULIST_FOR_EACH_CONTINUE(ITER, MEMBER, RCULIST)                \
-    for (ASSIGN_CONTAINER(ITER, rculist_next(&(ITER)->MEMBER), MEMBER); \
-         &(ITER)->MEMBER != (RCULIST);                                  \
-         ASSIGN_CONTAINER(ITER, rculist_next(&(ITER)->MEMBER), MEMBER))
+    for (INIT_MULTIVAR(ITER, MEMBER, rculist_next(RCULIST));            \
+         CONDITION_MULTIVAR(ITER_VAR(ITER) != (RCULIST), ITER, MEMBER); \
+         UPDATE_MULTIVAR(ITER_VAR(ITER) = rculist_next(ITER_VAR(ITER)), \
+                        ITER))
 
-#define RCULIST_FOR_EACH_REVERSE_PROTECTED(ITER, MEMBER, RCULIST)       \
-    for (INIT_CONTAINER(ITER, (RCULIST)->prev, MEMBER);                 \
-         &(ITER)->MEMBER != (RCULIST);                                  \
-         ASSIGN_CONTAINER(ITER, (ITER)->MEMBER.prev, MEMBER))
-#define RCULIST_FOR_EACH_REVERSE_PROTECTED_CONTINUE(ITER, MEMBER, RCULIST) \
-    for (ASSIGN_CONTAINER(ITER, (ITER)->MEMBER.prev, MEMBER);           \
-         &(ITER)->MEMBER != (RCULIST);                                  \
-         ASSIGN_CONTAINER(ITER, (ITER)->MEMBER.prev, MEMBER))
+#define RCULIST_FOR_EACH_CONTINUE(ITER, MEMBER, RCULIST)                      \
+    for (INIT_MULTIVAR(ITER, MEMBER, rculist_next(&(ITER)->MEMBER));          \
+         CONDITION_MULTIVAR(ITER_VAR(ITER) != (RCULIST), ITER, MEMBER);       \
+         UPDATE_MULTIVAR(ITER_VAR(ITER) = rculist_next(ITER_VAR(ITER)),       \
+                        ITER))
 
-#define RCULIST_FOR_EACH_PROTECTED(ITER, MEMBER, RCULIST)               \
-    for (INIT_CONTAINER(ITER, rculist_next_protected(RCULIST), MEMBER); \
-         &(ITER)->MEMBER != (RCULIST);                                  \
-         ASSIGN_CONTAINER(ITER, rculist_next_protected(&(ITER)->MEMBER), \
-                          MEMBER))
+#define RCULIST_FOR_EACH_REVERSE_PROTECTED(ITER, MEMBER, RCULIST)          \
+    for (INIT_MULTIVAR(ITER, MEMBER, (RCULIST)->prev);                     \
+         CONDITION_MULTIVAR(ITER_VAR(ITER) != (RCULIST), ITER, MEMBER);    \
+         UPDATE_MULTIVAR(ITER_VAR(ITER) = ITER_VAR(VAR).prev, ITER))
 
-#define RCULIST_FOR_EACH_SAFE_PROTECTED(ITER, NEXT, MEMBER, RCULIST)    \
-    for (INIT_CONTAINER(ITER, rculist_next_protected(RCULIST), MEMBER); \
-         (&(ITER)->MEMBER != (RCULIST)                                  \
-          ? INIT_CONTAINER(NEXT, rculist_next_protected(&(ITER)->MEMBER), \
-                           MEMBER), 1 : 0);                             \
-         (ITER) = (NEXT))
+#define RCULIST_FOR_EACH_REVERSE_PROTECTED_CONTINUE(ITER, MEMBER, RCULIST)    \
+    for (INIT_MULTIVAR(ITER, MEMBER, (ITER)->MEMBER.prev);                    \
+         CONDITION_MULTIVAR(ITER_VAR(ITER) != (RCULIST), ITER, MEMBER);       \
+         UPDATE_MULTIVAR(ITER_VAR(ITER) = ITER_VAR(VAR).prev, ITER))
+
+#define RCULIST_FOR_EACH_PROTECTED(ITER, MEMBER, RCULIST)                 \
+    for (INIT_MULTIVAR(ITER, MEMBER, rculist_next_protected(RCULIST));    \
+         CONDITION_MULTIVAR(ITER_VAR(ITER) != (RCULIST), ITER, MEMBER);   \
+         UPDATE_MULTIVAR(rculist_next_protected(ITER_VAR(ITER), ITER))    \
+
+#define RCULIST_FOR_EACH_SAFE_PROTECTED(ITER, MEMBER, RCULIST)                \
+    for (INIT_MULTIVAR_SAFE(ITER, MEMBER, rculist_next_protected(RCULIST));   \
+         CONDITION_MULTIVAR_SAFE(ITER_VAR(ITER) != (RCULIST),                 \
+             ITER_NEXT_VAR(ITER) = rculist_next_protected(ITER_VAR(VAR)),     \
+             ITER, MEMBER);                                                   \
+        UPDATE_MULTIVAR(ITER))
 
 #endif /* rculist.h */
