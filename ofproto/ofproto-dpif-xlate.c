@@ -5007,6 +5007,7 @@ finish_freezing__(struct xlate_ctx *ctx, uint8_t table)
         .conntracked = ctx->conntracked,
         .was_mpls = ctx->was_mpls,
         .xport_uuid = ctx->xin->xport_uuid,
+        .tracing = !ctx->xin->trace,
         .ofpacts = ctx->frozen_actions.data,
         .ofpacts_len = ctx->frozen_actions.size,
         .action_set = ctx->action_set.data,

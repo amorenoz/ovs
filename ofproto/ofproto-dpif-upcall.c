@@ -1198,6 +1198,7 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
              struct ofpbuf *odp_actions, struct flow_wildcards *wc)
 {
     struct dpif_flow_stats stats;
+    struct ovs_list trace = OVS_LIST_INITIALIZER(&trace);
     enum xlate_error xerr;
     struct xlate_in xin;
     struct ds output;
@@ -1212,6 +1213,21 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
                   upcall->flow, upcall->ofp_in_port, NULL,
                   stats.tcp_flags, upcall->packet, wc, odp_actions);
 
+    if (ntohs(upcall->flow->tp_dst) == 2399 || (xin.frozen_state &&
+                                                xin.frozen_state->tracing)) {
+        VLOG_WARN("Tracing");
+        xin.trace = &trace;
+        ds_init(&output);
+        /*
+            ds_init(&output);
+            ofproto_trace(upcall->ofproto, upcall->flow,
+                          upcall->packet, NULL, 0, NULL, &output);
+            VLOG_WARN("%s", ds_cstr(&output));
+            ds_destroy(&output);
+        */
+        // Print initial flow
+    }
+
     if (upcall->type == MISS_UPCALL) {
         xin.resubmit_stats = &stats;
 
@@ -1223,6 +1239,8 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
              * don't install the flow. */
             upcall->recirc = recirc_id_node_from_state(xin.frozen_state);
             upcall->have_recirc_ref = recirc_id_node_try_ref_rcu(upcall->recirc);
+
+            // TODO: Determine if tracing from frozen
         }
     } else {
         /* For non-miss upcalls, we are either executing actions (one of which
@@ -1234,7 +1252,50 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
 
     upcall->reval_seq = seq_read(udpif->reval_seq);
 
+    if (xin.trace) {
+        struct flow initial_flow = xin.flow;
+        ds_put_cstr(&output, "Flow: ");
+        flow_format(&output, &initial_flow, NULL);
+        ds_put_char(&output, '\n');
+    }
     xerr = xlate_actions(&xin, &upcall->xout);
+
+    if (xin.trace) {
+        oftrace_node_print_details(&output, &trace, 0);
+        ds_put_char(&output, '\n');
+        // TODO Final flow:
+        ds_put_cstr(&output, "Megaflow: ");
+        struct match match;
+        match_init(&match, &xin.flow, wc);
+        match_format(&match, NULL, &output, OFP_DEFAULT_PRIORITY);
+        ds_put_char(&output, '\n');
+
+        ds_put_cstr(&output, "Datapath actions: ");
+        format_odp_actions(&output, odp_actions->data, odp_actions->size, NULL);
+
+        if (xerr!= XLATE_OK) {
+            ds_put_format(&output,
+                          "\nTranslation failed (%s), packet is dropped.\n",
+                          xlate_strerror(xerr));
+        } /* else if (upcall->xout.slow) {
+                explain_slow_path(upcall->xout.slow, &output);
+        } */
+
+        // TODO: Decide where to send it
+        VLOG_WARN("%s", ds_cstr(&output));
+        oftrace_node_list_destroy(&trace);
+        ds_destroy(&output);
+    }
+
+    // TODO: If tracing print all the stuff
+    // oftrace_node_print_details(output, &trace, 0);
+    // ds_put_cstr(output, "\nFinal flow: ");
+    // if (flow_equal(&initial_flow, &xin.flow)) {
+    //     ds_put_cstr(output, "unchanged");
+    // } else {
+    //     flow_format(output, &xin.flow, NULL);
+    // }
+    // ds_put_char(output, '\n');
 
     /* Translate again and log the ofproto trace for
      * these two error types. */
@@ -1243,7 +1304,7 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
         static struct vlog_rate_limit rll = VLOG_RATE_LIMIT_INIT(1, 1);
 
         /* This is a huge log, so be conservative. */
-        if (!VLOG_DROP_WARN(&rll)) {
+        if (!VLOG_DROP_WARN(&rll) && !xin.trace) {
             ds_init(&output);
             ofproto_trace(upcall->ofproto, upcall->flow,
                           upcall->packet, NULL, 0, NULL, &output);

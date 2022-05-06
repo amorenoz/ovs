@@ -89,11 +89,14 @@ void ofproto_trace(struct ofproto_dpif *ofproto, const struct flow *flow,
               struct ovs_list *next_ct_states, struct ds *output);
 
 struct oftrace_node *oftrace_report(struct ovs_list *, enum oftrace_node_type,
-                                    const char *text);
-bool oftrace_add_recirc_node(struct ovs_list *recirc_queue,
-                             enum oftrace_recirc_type, const struct flow *,
+                                    const char *text); bool oftrace_add_recirc_node(struct ovs_list *recirc_queue, enum oftrace_recirc_type, const struct flow *,
                              const struct ofpact_nat *,
                              const struct dp_packet *, uint32_t recirc_id,
                              const uint16_t zone);
+
+void oftrace_node_print_details(struct ds *output,
+                           const struct ovs_list *nodes, int level);
+
+void oftrace_node_list_destroy(struct ovs_list *nodes);
 
 #endif /* ofproto-dpif-trace.h */
