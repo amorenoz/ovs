@@ -61,7 +61,7 @@ xtrace_node_type_is_terminal(enum xtrace_node_type type)
     OVS_NOT_REACHED();
 }
 
-static void
+void
 xtrace_node_list_destroy(struct ovs_list *nodes)
 {
     if (nodes) {
@@ -732,6 +732,68 @@ ofproto_xtrace_recirc_node(struct xtrace_recirc_node *node,
     ds_put_cstr(output, "\n\n");
 }
 
+/* Caller is responsible of keeping a copy of xin->flow and pass it
+   as initial_flow in ofproto_xtrace_end */
+void
+ofproto_xtrace_start(const struct xlate_in *xin,
+                     const struct ofputil_port_map *map,
+                     struct ds* output)
+{
+    ds_put_cstr(output, "Flow: ");
+    flow_format(output, &xin->flow, map);
+    ds_put_char(output, '\n');
+}
+
+void
+ofproto_xtrace_end(const struct flow *initial_flow,
+                   const struct ovs_list *nodes,
+                   const struct xlate_in *xin,
+                   const struct xlate_out *xout,
+                   const enum xlate_error xerr,
+                   const struct ofputil_port_map *map,
+                   struct ds *output)
+{
+    struct flow_wildcards *wc;
+    struct match match;
+    xtrace_node_print_details(output, nodes, 0);
+
+    ds_put_cstr(output, "\nFinal flow: ");
+    if (flow_equal(initial_flow, &xin->flow)) {
+        ds_put_cstr(output, "unchanged");
+    } else {
+        flow_format(output, &xin->flow, map);
+    }
+    ds_put_char(output, '\n');
+
+    ds_put_cstr(output, "Megaflow: ");
+
+    wc = xin->wc ? xin->wc :
+        &(struct flow_wildcards) { .masks = { .dl_type = 0 } };
+
+    match_init(&match, &xin->flow, wc);
+    match_format(&match, NULL, output, OFP_DEFAULT_PRIORITY);
+    ds_put_char(output, '\n');
+
+    if (xin->odp_actions) {
+        ds_put_cstr(output, "Datapath actions: ");
+        format_odp_actions(output,
+                           xin->odp_actions->data,
+                           xin->odp_actions->size,
+                           NULL);
+    }
+
+    if (xerr!= XLATE_OK) {
+        ds_put_format(output,
+            "\nTranslation failed (%s), packet is dropped.\n",
+            xlate_strerror(xerr));
+    } else if (xout->slow) {
+            explain_slow_path(xout->slow, output);
+    } else {
+        ds_put_cstr(output, "\n");
+    }
+
+}
+
 static void
 ofproto_xtrace__(struct ofproto_dpif *ofproto, const struct flow *flow,
                 const struct dp_packet *packet, struct ovs_list *recirc_queue,
@@ -773,54 +835,18 @@ ofproto_xtrace__(struct ofproto_dpif *ofproto, const struct flow *flow,
     /* Copy initial flow out of xin.flow.  It differs from '*flow' because
      * xlate_in_init() initializes actset_output to OFPP_UNSET. */
     struct flow initial_flow = xin.flow;
-    ds_put_cstr(output, "Flow: ");
-    flow_format(output, &initial_flow, &map);
-    ds_put_char(output, '\n');
+    ofproto_xtrace_start(&xin, &map, output);
 
     struct xlate_out xout;
     enum xlate_error error = xlate_actions(&xin, &xout);
 
-    xtrace_node_print_details(output, &trace, 0);
+    ofproto_xtrace_end(&initial_flow, &trace, &xin, &xout, error, &map,
+                       output);
 
-    ds_put_cstr(output, "\nFinal flow: ");
-    if (flow_equal(&initial_flow, &xin.flow)) {
-        ds_put_cstr(output, "unchanged");
-    } else {
-        flow_format(output, &xin.flow, &map);
-    }
-    ds_put_char(output, '\n');
-
-    ds_put_cstr(output, "Megaflow: ");
-    struct match match;
-    match_init(&match, flow, &wc);
-    match_format(&match, &map, output, OFP_DEFAULT_PRIORITY);
-    ds_put_char(output, '\n');
-
-    ds_put_cstr(output, "Datapath actions: ");
-    format_odp_actions(output, odp_actions.data, odp_actions.size,
-                       portno_names);
-
-    if (error != XLATE_OK) {
-        ds_put_format(output,
-                      "\nTranslation failed (%s), packet is dropped.\n",
-                      xlate_strerror(error));
-    } else {
-        if (xout.slow) {
-            explain_slow_path(xout.slow, output);
-        }
-        if (packet) {
-            execute_actions_except_outputs(ofproto->backer->dpif, packet,
-                                           &initial_flow, &odp_actions,
-                                           xout.slow, output);
-        }
-    }
-
-    if (names) {
-        ofputil_port_map_destroy(&map);
-
-        odp_portno_names_destroy(portno_names);
-        hmap_destroy(portno_names);
-        free(portno_names);
+    if (error == XLATE_OK && packet) {
+        execute_actions_except_outputs(ofproto->backer->dpif, packet,
+                                       &initial_flow, &odp_actions,
+                                       xout.slow, output);
     }
 
     xlate_out_uninit(&xout);

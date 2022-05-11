@@ -34,6 +34,9 @@
 #include "openvswitch/list.h"
 #include "flow.h"
 
+struct xlate_in;
+struct xlate_out;
+
 /* Type of a node within a trace. */
 enum xtrace_node_type {
     /* Nodes that may have children (nonterminal nodes). */
@@ -89,6 +92,20 @@ void ofproto_xtrace(struct ofproto_dpif *ofproto, const struct flow *flow,
               struct ovs_list *next_ct_states, struct ds *output,
               bool names);
 
+void
+ofproto_xtrace_start(const struct xlate_in *xin,
+                     const struct ofputil_port_map *map,
+                     struct ds* output);
+
+void
+ofproto_xtrace_end(const struct flow *initial_flow,
+                   const struct ovs_list *nodes,
+                   const struct xlate_in *xin,
+                   const struct xlate_out *xout,
+                   const enum xlate_error xerr,
+                   const struct ofputil_port_map *map,
+                   struct ds *output);
+
 struct xtrace_node *xtrace_report(struct ovs_list *, enum xtrace_node_type,
                                     const char *text);
 bool xtrace_add_recirc_node(struct ovs_list *recirc_queue,
@@ -96,6 +113,8 @@ bool xtrace_add_recirc_node(struct ovs_list *recirc_queue,
                              const struct ofpact_nat *,
                              const struct dp_packet *, uint32_t recirc_id,
                              const uint16_t zone);
+void
+xtrace_node_list_destroy(struct ovs_list *nodes);
 
 void ofproto_append_ports_to_map(struct ofputil_port_map *, struct hmap ports);
 

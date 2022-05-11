@@ -33,6 +33,7 @@
 #include "openvswitch/ofpbuf.h"
 #include "ofproto-dpif-ipfix.h"
 #include "ofproto-dpif-sflow.h"
+#include "ofproto-dpif-trace.h"
 #include "ofproto-dpif-xlate.h"
 #include "ofproto-dpif-xlate-cache.h"
 #include "ofproto-dpif-xlate-trace.h"
@@ -190,6 +191,8 @@ struct udpif {
     size_t n_conns;                    /* Number of connections waiting. */
 
     long long int offload_rebalance_time;  /* Time of last offload rebalance */
+
+    OVSRCU_TYPE(struct dpif_tracing *) tracing;    /* Tracing configuration. */
 };
 
 enum upcall_type {
@@ -228,7 +231,6 @@ struct upcall {
 
     enum upcall_type type;         /* Type of the upcall. */
     const struct nlattr *actions;  /* Flow actions in DPIF_UC_ACTION Upcalls. */
-
     bool xout_initialized;         /* True if 'xout' must be uninitialized. */
     struct xlate_out xout;         /* Result of xlate_actions(). */
     struct ofpbuf odp_actions;     /* Datapath actions from xlate_actions(). */
@@ -252,6 +254,8 @@ struct upcall {
     struct user_action_cookie cookie;
 
     uint64_t odp_actions_stub[1024 / 8]; /* Stub for odp_actions. */
+
+    struct dpif_tracer *tracer;    /* Upcall dpif tracer. */
 };
 
 /* Ukeys must transition through these states using transition_ukey(). */
@@ -348,6 +352,11 @@ static void udpif_pause_revalidators(struct udpif *);
 static void udpif_resume_revalidators(struct udpif *);
 static void *udpif_upcall_handler(void *);
 static void *udpif_revalidator(void *);
+static struct dpif_tracer * udpif_tracer_from_upcall(const struct upcall *);
+
+static struct dpif_tracer *
+udpif_tracer_from_frozen_upcall(const struct upcall *,
+                                const struct frozen_state *);
 static unsigned long udpif_get_n_flows(struct udpif *);
 static void revalidate(struct revalidator *);
 static void revalidator_pause(struct revalidator *);
@@ -707,6 +716,42 @@ udpif_set_threads(struct udpif *udpif, uint32_t n_handlers_,
         }
         udpif_start_threads(udpif, n_handlers_requested,
                             n_revalidators_requested);
+    }
+}
+
+/* Set's udpif tracing according to config. */
+// TODO: return error
+bool
+udpif_configure_tracing(struct udpif *udpif,
+                        const struct dpif_tracing_config *config)
+{
+    struct dpif_tracing *tracing = NULL;
+    if (config) {
+        tracing = dpif_tracing_create(config);
+        if (!tracing) {
+            return false;
+        }
+    }
+    struct dpif_tracing *old_tracing =
+        ovsrcu_get_protected(struct dpif_tracing *, &udpif->tracing);
+
+    if (old_tracing) {
+        ovsrcu_postpone(free, old_tracing);
+    }
+
+    ovsrcu_set(&udpif->tracing, tracing);
+    return true;
+}
+
+void
+udpif_format_tracing(const struct udpif *udpif, struct ds* output)
+{
+    struct dpif_tracing *tracing =
+        ovsrcu_get(struct dpif_tracing *, &udpif->tracing);
+    if (tracing) {
+        dpif_tracing_format(tracing, output);
+    } else {
+        ds_put_cstr(output, "none");
     }
 }
 
@@ -1235,6 +1280,7 @@ upcall_receive(struct upcall *upcall, const struct dpif_backer *backer,
 
     upcall->out_tun_key = NULL;
     upcall->actions = NULL;
+    upcall->tracer = udpif_tracer_from_upcall(upcall);
 
     return 0;
 }
@@ -1258,6 +1304,11 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
                   upcall->flow, upcall->ofp_in_port, NULL,
                   stats.tcp_flags, upcall->packet, wc, odp_actions);
 
+    if (!upcall->tracer) {
+        upcall->tracer =
+            udpif_tracer_from_frozen_upcall(upcall, xin.frozen_state);
+    }
+
     if (upcall->type == MISS_UPCALL) {
         xin.resubmit_stats = &stats;
 
@@ -1280,7 +1331,11 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
 
     upcall->reval_seq = seq_read(udpif->reval_seq);
 
+    xin.trace = dpif_tracer_xlate_start(upcall->tracer, &xin);
+
     xerr = xlate_actions(&xin, &upcall->xout);
+
+    dpif_tracer_xlate_end(upcall->tracer, &xin, &upcall->xout, xerr);
 
     /* Translate again and log the ofproto trace for
      * these two error types. */
@@ -1348,6 +1403,11 @@ upcall_uninit(struct upcall *upcall)
         } else if (upcall->have_recirc_ref) {
             /* The reference was transferred to the ukey if one was created. */
             recirc_id_node_unref(upcall->recirc);
+        }
+        if (upcall->tracer) {
+            dpif_tracer_consume(upcall->tracer);
+            free(upcall->tracer);
+            upcall->tracer = NULL;
         }
     }
 }
@@ -1673,6 +1733,9 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
             if (ukey_install(udpif, ukey)) {
                 upcall->ukey_persists = true;
                 put_op_init(&ops[n_ops++], ukey, DPIF_FP_CREATE);
+                dpif_tracer_addf(upcall->tracer,
+                                 "Installing flow in datapath. udpif_key %p",
+                                 ukey);
             }
         }
 
@@ -3601,4 +3664,31 @@ udpif_flow_unprogram(struct udpif *udpif, struct udpif_key *ukey,
     dpif_operate(udpif->dpif, &opsp, 1, offload_type);
 
     return opsp->error;
+}
+
+static struct dpif_tracer *
+udpif_tracer_from_upcall(const struct upcall *upcall)
+{
+    struct dpif_tracer *tracer = NULL;
+    struct dpif_tracing *tracing = ovsrcu_get(struct dpif_tracing *,
+                                    &upcall->ofproto->backer->udpif->tracing);
+    if (OVS_UNLIKELY(tracing))
+        tracer = dpif_tracer_from_flow(tracing, upcall->flow,
+                                       &upcall->ofp_in_port);
+    return tracer;
+}
+
+static struct dpif_tracer *
+udpif_tracer_from_frozen_upcall(const struct upcall *upcall,
+                                const struct frozen_state *state)
+{
+    struct dpif_tracer *tracer = NULL;
+    struct dpif_tracing *tracing = ovsrcu_get(struct dpif_tracing *,
+                                    &upcall->ofproto->backer->udpif->tracing);
+
+    if (OVS_UNLIKELY(tracing) && state && state->tracing) {
+        tracer = dpif_tracer_create(tracing,
+                                    "Tracer created from frozen upcall");
+    }
+    return tracer;
 }

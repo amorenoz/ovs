@@ -47,10 +47,11 @@
 #include "ofproto-dpif-monitor.h"
 #include "ofproto-dpif-rid.h"
 #include "ofproto-dpif-sflow.h"
-#include "ofproto-dpif-xlate-trace.h"
+#include "ofproto-dpif-trace.h"
 #include "ofproto-dpif-upcall.h"
 #include "ofproto-dpif-xlate.h"
 #include "ofproto-dpif-xlate-cache.h"
+#include "ofproto-dpif-xlate-trace.h"
 #include "openvswitch/ofp-actions.h"
 #include "openvswitch/dynamic-string.h"
 #include "openvswitch/meta-flow.h"
@@ -6629,6 +6630,72 @@ ofproto_unixctl_dpif_set_dp_features(struct unixctl_conn *conn,
 }
 
 static void
+ofproto_unixctl_dpif_trace_add(struct unixctl_conn *conn, int argc OVS_UNUSED,
+                               const char* argv[], void *aux OVS_UNUSED)
+{
+    struct dpif_tracing_config config = {
+        .type = DPIF_TRACE_LOG,
+        .port_map = OFPUTIL_PORT_MAP_INITIALIZER(&config.port_map),
+        .filter_expr = argv[2],
+    };
+    struct ofproto_dpif *ofproto = ofproto_dpif_lookup_by_name(argv[1]);
+    if (!ofproto) {
+        unixctl_command_reply_error(conn, "no such bridge");
+        return;
+    }
+
+    const struct ofport *ofport;
+    HMAP_FOR_EACH (ofport, hmap_node, &(ofproto->up.ports)) {
+        ofputil_port_map_put(&config.port_map, ofport->ofp_port,
+                             netdev_get_name(ofport->netdev));
+    }
+
+    if (!udpif_configure_tracing(ofproto->backer->udpif, &config)) {
+        unixctl_command_reply_error(conn, "failed");
+        return;
+    }
+    unixctl_command_reply(conn, "");
+}
+
+static void
+ofproto_unixctl_dpif_trace_show(struct unixctl_conn *conn,
+                                int argc OVS_UNUSED,
+                                const char* argv[] OVS_UNUSED,
+                                void *aux OVS_UNUSED)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    const struct shash_node **backers;
+    int i;
+
+    backers = shash_sort(&all_dpif_backers);
+    for (i = 0; i < shash_count(&all_dpif_backers); i++) {
+        struct dpif_backer *backer= (struct dpif_backer *)backers[i]->data;
+        ds_put_format(&ds, "%s: ", dpif_name(backer->dpif));
+        udpif_format_tracing(backer->udpif, &ds);
+        ds_put_cstr(&ds, "\n");
+    }
+    unixctl_command_reply(conn, ds_cstr(&ds));
+    ds_destroy(&ds);
+}
+
+static void
+ofproto_unixctl_dpif_trace_clear(struct unixctl_conn *conn,
+                                 int argc OVS_UNUSED,
+                                 const char* argv[] OVS_UNUSED,
+                                 void *aux OVS_UNUSED)
+{
+    const struct shash_node **backers;
+    int i;
+
+    backers = shash_sort(&all_dpif_backers);
+    for (i = 0; i < shash_count(&all_dpif_backers); i++) {
+        struct dpif_backer *backer= (struct dpif_backer *)backers[i]->data;
+        udpif_configure_tracing(backer->udpif, NULL);
+    }
+    unixctl_command_reply(conn, "");
+}
+
+static void
 ofproto_unixctl_init(void)
 {
     static bool registered;
@@ -6664,6 +6731,15 @@ ofproto_unixctl_init(void)
                              ofproto_unixctl_dpif_dump_flows, NULL);
     unixctl_command_register("dpif/set-dp-features", "bridge", 1, 3 ,
                              ofproto_unixctl_dpif_set_dp_features, NULL);
+    unixctl_command_register("dpif/trace-add",
+                             "udpif/trace-add bridge flow", 2, INT_MAX,
+                             ofproto_unixctl_dpif_trace_add, NULL);
+    unixctl_command_register("dpif/trace-show",
+                             "udpif/trace-show", 0, 1,
+                             ofproto_unixctl_dpif_trace_show, NULL);
+    unixctl_command_register("dpif/trace-clear",
+                             "udpif/trace-clear", 0, 1,
+                             ofproto_unixctl_dpif_trace_clear, NULL);
 }
 
 static odp_port_t

@@ -15,11 +15,14 @@
 #ifndef OFPROTO_DPIF_UPCALL_H
 #define OFPROTO_DPIF_UPCALL_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <inttypes.h>
 
+struct ds;
 struct dpif;
 struct dpif_backer;
+struct dpif_tracing_config;
 struct dpif_upcall;
 struct ofpbuf;
 struct seq;
@@ -39,5 +42,8 @@ void udpif_revalidate(struct udpif *);
 void udpif_get_memory_usage(struct udpif *, struct simap *usage);
 struct seq *udpif_dump_seq(struct udpif *);
 void udpif_flush(struct udpif *);
+bool udpif_configure_tracing(struct udpif *,
+                             const struct dpif_tracing_config *);
+void udpif_format_tracing(const struct udpif *, struct ds*);
 
 #endif /* ofproto-dpif-upcall.h */
