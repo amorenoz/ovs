@@ -12,8 +12,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License. */
 
-#ifndef OFPROTO_DPIF_TRACE_H
-#define OFPROTO_DPIF_TRACE_H 1
+#ifndef OFPROTO_DPIF_XLATE_TRACE_H
+#define OFPROTO_DPIF_XLATE_TRACE_H 1
 
 /* Tracing
  * =======
@@ -35,7 +35,7 @@
 #include "flow.h"
 
 /* Type of a node within a trace. */
-enum oftrace_node_type {
+enum xtrace_node_type {
     /* Nodes that may have children (nonterminal nodes). */
     OFT_BRIDGE,                 /* Packet travel through an OpenFlow switch. */
     OFT_TABLE,                  /* Packet travel through a flow table. */
@@ -50,26 +50,26 @@ enum oftrace_node_type {
 };
 
 /* Reason why a flow is in a recirculation queue. */
-enum oftrace_recirc_type {
+enum xtrace_recirc_type {
     OFT_RECIRC_CONNTRACK,
     OFT_RECIRC_MPLS,
     OFT_RECIRC_BOND,
 };
 
 /* A node within a trace. */
-struct oftrace_node {
+struct xtrace_node {
     struct ovs_list node;       /* In parent. */
-    struct ovs_list subs;       /* List of "struct oftrace_node" children. */
+    struct ovs_list subs;       /* List of "struct xtrace_node" children. */
 
-    enum oftrace_node_type type;
+    enum xtrace_node_type type;
     char *text;
 };
 
 /* A node within a recirculation queue. */
-struct oftrace_recirc_node {
+struct xtrace_recirc_node {
     struct ovs_list node;       /* In recirc_queue. */
 
-    enum oftrace_recirc_type type;
+    enum xtrace_recirc_type type;
     uint32_t recirc_id;
     struct flow flow;
     struct dp_packet *packet;
@@ -77,22 +77,22 @@ struct oftrace_recirc_node {
 };
 
 /* A node within a next_ct_states list. */
-struct oftrace_next_ct_state {
+struct xtrace_next_ct_state {
     struct ovs_list node;       /* In next_ct_states. */
     uint32_t state;
 };
 
-void ofproto_dpif_trace_init(void);
-void ofproto_trace(struct ofproto_dpif *ofproto, const struct flow *flow,
+void ofproto_dpif_xtrace_init(void);
+void ofproto_xtrace(struct ofproto_dpif *ofproto, const struct flow *flow,
               const struct dp_packet *packet,
               const struct ofpact *, size_t ofpacts_len,
               struct ovs_list *next_ct_states, struct ds *output,
               bool names);
 
-struct oftrace_node *oftrace_report(struct ovs_list *, enum oftrace_node_type,
+struct xtrace_node *xtrace_report(struct ovs_list *, enum xtrace_node_type,
                                     const char *text);
-bool oftrace_add_recirc_node(struct ovs_list *recirc_queue,
-                             enum oftrace_recirc_type, const struct flow *,
+bool xtrace_add_recirc_node(struct ovs_list *recirc_queue,
+                             enum xtrace_recirc_type, const struct flow *,
                              const struct ofpact_nat *,
                              const struct dp_packet *, uint32_t recirc_id,
                              const uint16_t zone);

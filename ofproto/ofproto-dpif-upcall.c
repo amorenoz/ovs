@@ -35,7 +35,7 @@
 #include "ofproto-dpif-sflow.h"
 #include "ofproto-dpif-xlate.h"
 #include "ofproto-dpif-xlate-cache.h"
-#include "ofproto-dpif-trace.h"
+#include "ofproto-dpif-xlate-trace.h"
 #include "ovs-rcu.h"
 #include "packets.h"
 #include "openvswitch/poll-loop.h"
@@ -1291,9 +1291,9 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
         /* This is a huge log, so be conservative. */
         if (!VLOG_DROP_WARN(&rll)) {
             ds_init(&output);
-            ofproto_trace(upcall->ofproto, upcall->flow,
-                          upcall->packet, NULL, 0, NULL, &output,
-                          false);
+            ofproto_xtrace(upcall->ofproto, upcall->flow,
+                           upcall->packet, NULL, 0, NULL, &output,
+                           false);
             VLOG_WARN("%s", ds_cstr(&output));
             ds_destroy(&output);
         }

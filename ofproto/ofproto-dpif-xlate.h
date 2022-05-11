@@ -102,9 +102,10 @@ struct xlate_in {
      * timeouts.) */
     uint16_t tcp_flags;
 
-    /* Set to nonnull to trace the translation.  See ofproto-dpif-trace.h for
-     * more information.  This points to the list of oftrace nodes to which the
-     * translation should add tracing information (with oftrace_report()). */
+    /* Set to nonnull to trace the translation.
+     * See ofproto-dpif-xlate-trace.h for more information
+     * This points to the list of oftrace nodes to which the translation should
+     * add tracing information (with oftrace_report()). */
     struct ovs_list *trace;
 
     /* If nonnull, flow translation credits the specified statistics to each

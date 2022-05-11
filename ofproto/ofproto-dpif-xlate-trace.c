@@ -16,23 +16,23 @@
 
 #include <config.h>
 
-#include "ofproto-dpif-trace.h"
+#include "ofproto-dpif-xlate-trace.h"
 
 #include "conntrack.h"
 #include "dpif.h"
 #include "ofproto-dpif-xlate.h"
 #include "unixctl.h"
 
-static void oftrace_node_destroy(struct oftrace_node *);
+static void xtrace_node_destroy(struct xtrace_node *);
 
-/* Creates a new oftrace_node, populates it with the given 'type' and a copy of
+/* Creates a new xtrace_node, populates it with the given 'type' and a copy of
  * 'text', and appends it to list 'super'.  The caller retains ownership of
  * 'text'. */
-struct oftrace_node *
-oftrace_report(struct ovs_list *super, enum oftrace_node_type type,
+struct xtrace_node *
+xtrace_report(struct ovs_list *super, enum xtrace_node_type type,
                const char *text)
 {
-    struct oftrace_node *node = xmalloc(sizeof *node);
+    struct xtrace_node *node = xmalloc(sizeof *node);
     ovs_list_push_back(super, &node->node);
     node->type = type;
     node->text = xstrdup(text);
@@ -42,7 +42,7 @@ oftrace_report(struct ovs_list *super, enum oftrace_node_type type,
 }
 
 static bool
-oftrace_node_type_is_terminal(enum oftrace_node_type type)
+xtrace_node_type_is_terminal(enum xtrace_node_type type)
 {
     switch (type) {
     case OFT_ACTION:
@@ -62,30 +62,30 @@ oftrace_node_type_is_terminal(enum oftrace_node_type type)
 }
 
 static void
-oftrace_node_list_destroy(struct ovs_list *nodes)
+xtrace_node_list_destroy(struct ovs_list *nodes)
 {
     if (nodes) {
-        struct oftrace_node *node;
+        struct xtrace_node *node;
         LIST_FOR_EACH_SAFE (node, node, nodes) {
             ovs_list_remove(&node->node);
-            oftrace_node_destroy(node);
+            xtrace_node_destroy(node);
         }
     }
 }
 
 static void
-oftrace_node_destroy(struct oftrace_node *node)
+xtrace_node_destroy(struct xtrace_node *node)
 {
     if (node) {
-        oftrace_node_list_destroy(&node->subs);
+        xtrace_node_list_destroy(&node->subs);
         free(node->text);
         free(node);
     }
 }
 
 bool
-oftrace_add_recirc_node(struct ovs_list *recirc_queue,
-                        enum oftrace_recirc_type type, const struct flow *flow,
+xtrace_add_recirc_node(struct ovs_list *recirc_queue,
+                        enum xtrace_recirc_type type, const struct flow *flow,
                         const struct ofpact_nat *ofn,
                         const struct dp_packet *packet, uint32_t recirc_id,
                         const uint16_t zone)
@@ -94,7 +94,7 @@ oftrace_add_recirc_node(struct ovs_list *recirc_queue,
         return false;
     }
 
-    struct oftrace_recirc_node *node = xmalloc(sizeof *node);
+    struct xtrace_recirc_node *node = xmalloc(sizeof *node);
     ovs_list_push_back(recirc_queue, &node->node);
 
     node->type = type;
@@ -109,7 +109,7 @@ oftrace_add_recirc_node(struct ovs_list *recirc_queue,
 }
 
 static void
-oftrace_recirc_node_destroy(struct oftrace_recirc_node *node)
+xtrace_recirc_node_destroy(struct xtrace_recirc_node *node)
 {
     if (node) {
         recirc_free_id(node->recirc_id);
@@ -119,18 +119,18 @@ oftrace_recirc_node_destroy(struct oftrace_recirc_node *node)
 }
 
 static void
-oftrace_push_ct_state(struct ovs_list *next_ct_states, uint32_t ct_state)
+xtrace_push_ct_state(struct ovs_list *next_ct_states, uint32_t ct_state)
 {
-    struct oftrace_next_ct_state *next_ct_state =
+    struct xtrace_next_ct_state *next_ct_state =
         xmalloc(sizeof *next_ct_state);
     next_ct_state->state = ct_state;
     ovs_list_push_back(next_ct_states, &next_ct_state->node);
 }
 
 static uint32_t
-oftrace_pop_ct_state(struct ovs_list *next_ct_states)
+xtrace_pop_ct_state(struct ovs_list *next_ct_states)
 {
-    struct oftrace_next_ct_state *s;
+    struct xtrace_next_ct_state *s;
     LIST_FOR_EACH_POP (s, node, next_ct_states) {
         uint32_t state = s->state;
         free(s);
@@ -140,17 +140,17 @@ oftrace_pop_ct_state(struct ovs_list *next_ct_states)
 }
 
 static void
-oftrace_node_print_details(struct ds *output,
+xtrace_node_print_details(struct ds *output,
                            const struct ovs_list *nodes, int level)
 {
-    const struct oftrace_node *sub;
+    const struct xtrace_node *sub;
     LIST_FOR_EACH (sub, node, nodes) {
         if (sub->type == OFT_BRIDGE) {
             ds_put_char(output, '\n');
         }
 
         bool more = (sub->node.next != nodes
-                     || oftrace_node_type_is_terminal(sub->type));
+                     || xtrace_node_type_is_terminal(sub->type));
 
         ds_put_char_multiple(output, ' ', (level + more) * 4);
         switch (sub->type) {
@@ -177,12 +177,12 @@ oftrace_node_print_details(struct ds *output,
             break;
         }
 
-        oftrace_node_print_details(output, &sub->subs, level + more + more);
+        xtrace_node_print_details(output, &sub->subs, level + more + more);
     }
 }
 
 static void
-oftrace_print_ip_flow(const struct flow *flow, int af, struct ds *output)
+xtrace_print_ip_flow(const struct flow *flow, int af, struct ds *output)
 {
     if (af == AF_INET) {
         ds_put_format(output, "nw_src="IP_FMT",tp_src=%"PRIu16","
@@ -290,7 +290,7 @@ parse_flow_and_packet(int argc, const char *argv[],
                 error = ds_steal_cstr(&ds);
                 goto exit;
             }
-            oftrace_push_ct_state(next_ct_states, ct_state);
+            xtrace_push_ct_state(next_ct_states, ct_state);
         } else if (arg[0] == '-') {
             error = xasprintf("%s: unknown option", arg);
             goto exit;
@@ -465,7 +465,7 @@ static void
 free_ct_states(struct ovs_list *ct_states)
 {
     while (!ovs_list_is_empty(ct_states)) {
-        oftrace_pop_ct_state(ct_states);
+        xtrace_pop_ct_state(ct_states);
     }
 }
 
@@ -486,8 +486,8 @@ ofproto_unixctl_trace(struct unixctl_conn *conn, int argc, const char *argv[],
         struct ds result;
 
         ds_init(&result);
-        ofproto_trace(ofproto, &flow, packet, NULL, 0, &next_ct_states,
-                      &result, names);
+        ofproto_xtrace(ofproto, &flow, packet, NULL, 0, &next_ct_states,
+                       &result, names);
         unixctl_command_reply(conn, ds_cstr(&result));
         ds_destroy(&result);
         dp_packet_delete(packet);
@@ -583,9 +583,9 @@ ofproto_unixctl_trace_actions(struct unixctl_conn *conn, int argc,
         goto exit;
     }
 
-    ofproto_trace(ofproto, &match.flow, packet,
-                  ofpacts.data, ofpacts.size, &next_ct_states, &result,
-                  names);
+    ofproto_xtrace(ofproto, &match.flow, packet,
+                   ofpacts.data, ofpacts.size, &next_ct_states, &result,
+                   names);
     unixctl_command_reply(conn, ds_cstr(&result));
 
 exit:
@@ -666,7 +666,7 @@ execute_actions_except_outputs(struct dpif *dpif,
 }
 
 static void
-ofproto_trace_recirc_node(struct oftrace_recirc_node *node,
+ofproto_xtrace_recirc_node(struct xtrace_recirc_node *node,
                           struct ovs_list *next_ct_states,
                           struct ds *output)
 {
@@ -681,7 +681,7 @@ ofproto_trace_recirc_node(struct oftrace_recirc_node *node,
             ds_put_cstr(output, " - resume conntrack with default "
                         "ct_state=trk|new (use --ct-next to customize)");
         } else {
-            ct_state = oftrace_pop_ct_state(next_ct_states);
+            ct_state = xtrace_pop_ct_state(next_ct_states);
             struct ds s = DS_EMPTY_INITIALIZER;
             format_flags(&s, ct_state_to_string, ct_state, '|');
             ds_put_format(output, " - resume conntrack with ct_state=%s",
@@ -701,7 +701,7 @@ ofproto_trace_recirc_node(struct oftrace_recirc_node *node,
 
         ds_put_cstr(output, "Replacing src/dst IP/ports to simulate NAT:\n");
         ds_put_cstr(output, " Initial flow: ");
-        oftrace_print_ip_flow(&node->flow, ofn->range_af, output);
+        xtrace_print_ip_flow(&node->flow, ofn->range_af, output);
 
         if (ofn->flags & NX_NAT_F_SRC) {
             if (ofn->range_af == AF_INET) {
@@ -726,14 +726,14 @@ ofproto_trace_recirc_node(struct oftrace_recirc_node *node,
             }
         }
         ds_put_cstr(output, " Modified flow: ");
-        oftrace_print_ip_flow(&node->flow, ofn->range_af, output);
+        xtrace_print_ip_flow(&node->flow, ofn->range_af, output);
     }
     ds_put_char_multiple(output, '=', 79);
     ds_put_cstr(output, "\n\n");
 }
 
 static void
-ofproto_trace__(struct ofproto_dpif *ofproto, const struct flow *flow,
+ofproto_xtrace__(struct ofproto_dpif *ofproto, const struct flow *flow,
                 const struct dp_packet *packet, struct ovs_list *recirc_queue,
                 const struct ofpact ofpacts[], size_t ofpacts_len,
                 struct ds *output, bool names)
@@ -780,7 +780,7 @@ ofproto_trace__(struct ofproto_dpif *ofproto, const struct flow *flow,
     struct xlate_out xout;
     enum xlate_error error = xlate_actions(&xin, &xout);
 
-    oftrace_node_print_details(output, &trace, 0);
+    xtrace_node_print_details(output, &trace, 0);
 
     ds_put_cstr(output, "\nFinal flow: ");
     if (flow_equal(&initial_flow, &xin.flow)) {
@@ -825,7 +825,7 @@ ofproto_trace__(struct ofproto_dpif *ofproto, const struct flow *flow,
 
     xlate_out_uninit(&xout);
     ofpbuf_uninit(&odp_actions);
-    oftrace_node_list_destroy(&trace);
+    xtrace_node_list_destroy(&trace);
 }
 
 /* Implements a "trace" through 'ofproto''s flow table, appending a textual
@@ -838,28 +838,28 @@ ofproto_trace__(struct ofproto_dpif *ofproto, const struct flow *flow,
  * If 'ofpacts' is nonnull then its 'ofpacts_len' bytes specify the actions to
  * trace, otherwise the actions are determined by a flow table lookup. */
 void
-ofproto_trace(struct ofproto_dpif *ofproto, const struct flow *flow,
+ofproto_xtrace(struct ofproto_dpif *ofproto, const struct flow *flow,
               const struct dp_packet *packet,
               const struct ofpact ofpacts[], size_t ofpacts_len,
               struct ovs_list *next_ct_states, struct ds *output,
               bool names)
 {
     struct ovs_list recirc_queue = OVS_LIST_INITIALIZER(&recirc_queue);
-    ofproto_trace__(ofproto, flow, packet, &recirc_queue,
-                    ofpacts, ofpacts_len, output, names);
+    ofproto_xtrace__(ofproto, flow, packet, &recirc_queue,
+                     ofpacts, ofpacts_len, output, names);
 
-    struct oftrace_recirc_node *recirc_node;
+    struct xtrace_recirc_node *recirc_node;
     LIST_FOR_EACH_POP (recirc_node, node, &recirc_queue) {
-        ofproto_trace_recirc_node(recirc_node, next_ct_states, output);
-        ofproto_trace__(ofproto, &recirc_node->flow, recirc_node->packet,
-                        &recirc_queue, ofpacts, ofpacts_len, output,
-                        names);
-        oftrace_recirc_node_destroy(recirc_node);
+        ofproto_xtrace_recirc_node(recirc_node, next_ct_states, output);
+        ofproto_xtrace__(ofproto, &recirc_node->flow, recirc_node->packet,
+                         &recirc_queue, ofpacts, ofpacts_len, output,
+                         names);
+        xtrace_recirc_node_destroy(recirc_node);
     }
 }
 
 void
-ofproto_dpif_trace_init(void)
+ofproto_dpif_xtrace_init(void)
 {
     static bool registered;
     if (registered) {
