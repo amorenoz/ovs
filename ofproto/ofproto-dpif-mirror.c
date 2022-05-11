@@ -21,7 +21,9 @@
 #include "cmap.h"
 #include "hmapx.h"
 #include "ofproto.h"
-#include "ofproto-dpif-trace.h"
+#include "openvswitch/ofp-flow.h"
+#include "openvswitch/ofp-port.h"
+#include "ofproto-provider.h"
 #include "vlan-bitmap.h"
 #include "openvswitch/vlog.h"
 

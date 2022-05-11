@@ -49,7 +49,7 @@
 #include "ofproto/ofproto-dpif-mirror.h"
 #include "ofproto/ofproto-dpif-monitor.h"
 #include "ofproto/ofproto-dpif-sflow.h"
-#include "ofproto/ofproto-dpif-trace.h"
+#include "ofproto/ofproto-dpif-xlate-trace.h"
 #include "ofproto/ofproto-dpif-xlate-cache.h"
 #include "ofproto/ofproto-dpif.h"
 #include "ofproto/ofproto-provider.h"
@@ -728,7 +728,7 @@ static void xlate_xcfg_free(struct xlate_cfg *);
  *
  * If tracing is not enabled, does nothing and returns NULL. */
 static struct ovs_list * OVS_PRINTF_FORMAT(3, 4)
-xlate_report(const struct xlate_ctx *ctx, enum oftrace_node_type type,
+xlate_report(const struct xlate_ctx *ctx, enum xtrace_node_type type,
              const char *format, ...)
 {
     struct ovs_list *subtrace = NULL;
@@ -736,7 +736,7 @@ xlate_report(const struct xlate_ctx *ctx, enum oftrace_node_type type,
         va_list args;
         va_start(args, format);
         char *text = xvasprintf(format, args);
-        subtrace = &oftrace_report(ctx->xin->trace, type, text)->subs;
+        subtrace = &xtrace_report(ctx->xin->trace, type, text)->subs;
         va_end(args);
         free(text);
     }
@@ -761,7 +761,7 @@ xlate_report_error(const struct xlate_ctx *ctx, const char *format, ...)
     va_end(args);
 
     if (ctx->xin->trace) {
-        oftrace_report(ctx->xin->trace, OFT_ERROR, ds_cstr(&s));
+        xtrace_report(ctx->xin->trace, OFT_ERROR, ds_cstr(&s));
     } else {
         ds_put_format(&s, " on bridge %s while processing ",
                       ctx->xbridge->name);
@@ -789,7 +789,7 @@ xlate_report_info(const struct xlate_ctx *ctx, const char *format, ...)
     va_end(args);
 
     if (ctx->xin->trace) {
-        oftrace_report(ctx->xin->trace, OFT_WARN, ds_cstr(&s));
+        xtrace_report(ctx->xin->trace, OFT_WARN, ds_cstr(&s));
     } else {
         ds_put_format(&s, " on bridge %s while processing ",
                       ctx->xbridge->name);
@@ -803,7 +803,7 @@ xlate_report_info(const struct xlate_ctx *ctx, const char *format, ...)
  * level (even if we are not tracing) because they can be valuable for
  * debugging. */
 static void OVS_PRINTF_FORMAT(3, 4)
-xlate_report_debug(const struct xlate_ctx *ctx, enum oftrace_node_type type,
+xlate_report_debug(const struct xlate_ctx *ctx, enum xtrace_node_type type,
                    const char *format, ...)
 {
     static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(30, 300);
@@ -819,7 +819,7 @@ xlate_report_debug(const struct xlate_ctx *ctx, enum oftrace_node_type type,
     va_end(args);
 
     if (ctx->xin->trace) {
-        oftrace_report(ctx->xin->trace, type, ds_cstr(&s));
+        xtrace_report(ctx->xin->trace, type, ds_cstr(&s));
     } else {
         VLOG_DBG("bridge %s: %s", ctx->xbridge->name, ds_cstr(&s));
     }
@@ -832,7 +832,7 @@ xlate_report_debug(const struct xlate_ctx *ctx, enum oftrace_node_type type,
  *
  * If tracing is not enabled, does nothing. */
 static void
-xlate_report_actions(const struct xlate_ctx *ctx, enum oftrace_node_type type,
+xlate_report_actions(const struct xlate_ctx *ctx, enum xtrace_node_type type,
                      const char *title,
                      const struct ofpact *ofpacts, size_t ofpacts_len)
 {
@@ -841,7 +841,7 @@ xlate_report_actions(const struct xlate_ctx *ctx, enum oftrace_node_type type,
         ds_put_format(&s, "%s: ", title);
         struct ofpact_format_params fp = { .s = &s };
         ofpacts_format(ofpacts, ofpacts_len, &fp);
-        oftrace_report(ctx->xin->trace, type, ds_cstr(&s));
+        xtrace_report(ctx->xin->trace, type, ds_cstr(&s));
         ds_destroy(&s);
     }
 }
@@ -948,7 +948,7 @@ xlate_report_table(const struct xlate_ctx *ctx, struct rule_dpif *rule,
                           ntohll(rule->up.flow_cookie));
         }
     }
-    ctx->xin->trace = &oftrace_report(ctx->xin->trace, OFT_TABLE,
+    ctx->xin->trace = &xtrace_report(ctx->xin->trace, OFT_TABLE,
                                       ds_cstr(&s))->subs;
     ds_destroy(&s);
 
@@ -4826,7 +4826,7 @@ xlate_group_bucket(struct xlate_ctx *ctx, struct ofputil_bucket *bucket,
     struct ovs_list *old_trace = ctx->xin->trace;
     if (OVS_UNLIKELY(ctx->xin->trace)) {
         char *s = xasprintf("bucket %"PRIu32, bucket->bucket_id);
-        ctx->xin->trace = &oftrace_report(ctx->xin->trace, OFT_BUCKET,
+        ctx->xin->trace = &xtrace_report(ctx->xin->trace, OFT_BUCKET,
                                           s)->subs;
         free(s);
     }
@@ -5352,7 +5352,7 @@ compose_recirculate_and_fork(struct xlate_ctx *ctx, uint8_t table,
     recirc_id = finish_freezing__(ctx, table);
 
     if (OVS_UNLIKELY(ctx->xin->trace) && recirc_id) {
-        if (oftrace_add_recirc_node(ctx->xin->recirc_queue,
+        if (xtrace_add_recirc_node(ctx->xin->recirc_queue,
                                     OFT_RECIRC_CONNTRACK, &ctx->xin->flow,
                                     ctx->ct_nat_action, ctx->xin->packet,
                                     recirc_id, zone)) {

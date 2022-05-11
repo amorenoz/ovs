@@ -48,7 +48,7 @@
 #include "ofproto-dpif-monitor.h"
 #include "ofproto-dpif-rid.h"
 #include "ofproto-dpif-sflow.h"
-#include "ofproto-dpif-trace.h"
+#include "ofproto-dpif-xlate-trace.h"
 #include "ofproto-dpif-upcall.h"
 #include "ofproto-dpif-lsample.h"
 #include "ofproto-dpif-xlate.h"
@@ -285,7 +285,7 @@ init(const struct shash *iface_hints)
     }
 
     ofproto_unixctl_init();
-    ofproto_dpif_trace_init();
+    ofproto_dpif_xtrace_init();
     udpif_init();
 }
 

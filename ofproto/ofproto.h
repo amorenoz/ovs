@@ -430,6 +430,8 @@ int ofproto_port_get_rstp_status(struct ofproto *, ofp_port_t ofp_port,
 int ofproto_port_set_rstp(struct ofproto *, ofp_port_t ofp_port,
         const struct ofproto_port_rstp_settings *);
 
+void ofproto_append_ports_to_map(struct ofputil_port_map *, struct hmap ports);
+
 /* The behaviour of the port regarding VLAN handling */
 enum port_vlan_mode {
     /* This port is an access port.  'vlan' is the VLAN ID.  'trunks' is

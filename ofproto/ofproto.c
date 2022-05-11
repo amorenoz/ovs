@@ -1245,6 +1245,16 @@ ofproto_port_get_rstp_status(struct ofproto *ofproto, ofp_port_t ofp_port,
     ofproto->ofproto_class->get_rstp_port_status(ofport, s);
     return 0;
 }
+
+void
+ofproto_append_ports_to_map(struct ofputil_port_map *map, struct hmap ports) {
+    struct ofport *ofport;
+
+    HMAP_FOR_EACH (ofport, hmap_node, &ports) {
+        ofputil_port_map_put(map, ofport->ofp_port,
+                             netdev_get_name(ofport->netdev));
+    }
+}
 
 /* Queue DSCP configuration. */
 
