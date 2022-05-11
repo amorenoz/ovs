@@ -7,6 +7,7 @@
 
 struct flow;
 struct ofproto_dpif;
+struct udpif_key;
 struct xlate_in;
 struct xlate_out;
 

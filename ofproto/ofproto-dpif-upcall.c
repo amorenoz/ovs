@@ -292,6 +292,36 @@ enum flow_del_reason {
     FDR_FLOW_MISSING_DP,    /* Flow is missing from the datapath. */
 };
 
+static char * flow_del_reason_to_str(enum flow_del_reason reason) {
+    switch (reason) {
+    case FDR_AVOID_CACHING:
+        return "Cache avoidance flag set";
+    case FDR_BAD_ODP_FIT:
+        return "Bad ODP flow fit";
+    case FDR_FLOW_IDLE:
+        return "Flow idle timeout";
+    case FDR_FLOW_LIMIT:
+        return "Kill all flows condition reached";
+    case FDR_FLOW_WILDCARDED:
+        return "Flow needs a narrower wildcard mask";
+    case FDR_NO_OFPROTO:
+        return "Bridge not found";
+    case FDR_PURGE:
+        return "User requested flow deletion";
+    case FDR_TOO_EXPENSIVE:
+        return "Too expensive to revalidate";
+    case FDR_UPDATE_FAIL:
+        return "Datapath update failed";
+    case FDR_XLATION_ERROR:
+        return "Flow translation error";
+    case FDR_FLOW_MISSING_DP:
+        return "Flow is missing from the datapath";
+    case FDR_NONE:
+    default:
+        return "Not specified";
+    }
+}
+
 /* 'udpif_key's are responsible for tracking the little bit of state udpif
  * needs to do flow expiration which can't be pulled directly from the
  * datapath.  They may be created by any handler or revalidator thread at any
@@ -352,6 +382,8 @@ struct udpif_key {
     long long int flow_time;		/* last pps update time */
     uint64_t flow_packets;		/* #pkts seen in interval */
     uint64_t flow_backlog_packets;	/* prev-mode #pkts (offl or kernel) */
+
+    struct dpif_tracer  *tracer;    /* Optional tracer */
 };
 
 /* Datapath operation with optional ukey attached. */
@@ -380,6 +412,8 @@ static struct dpif_tracer * udpif_tracer_from_upcall(const struct upcall *);
 static struct dpif_tracer *
 udpif_tracer_from_frozen_upcall(const struct upcall *,
                                 const struct frozen_state *);
+static struct dpif_tracer * udpif_tracer_from_ukey(const struct upcall*,
+                                                   const struct udpif_key *);
 static unsigned long udpif_get_n_flows(struct udpif *);
 static void revalidate(struct revalidator *);
 static void revalidator_pause(struct revalidator *);
@@ -1901,6 +1935,7 @@ ukey_create__(const struct nlattr *key, size_t key_len,
     ukey->flow_packets = ukey->flow_backlog_packets = 0;
 
     ukey->key_recirc_id = key_recirc_id;
+    ukey->tracer = NULL;
     recirc_refs_init(&ukey->recircs);
     if (xout) {
         /* Take ownership of the action recirc id references. */
@@ -1915,6 +1950,8 @@ ukey_create_from_upcall(struct upcall *upcall, struct flow_wildcards *wc)
 {
     struct odputil_keybuf keystub, maskstub;
     struct ofpbuf keybuf, maskbuf;
+    struct udpif_key *udpif_key;
+
     bool megaflow;
     struct odp_flow_key_parms odp_parms = {
         .flow = upcall->flow,
@@ -1938,11 +1975,14 @@ ukey_create_from_upcall(struct upcall *upcall, struct flow_wildcards *wc)
         odp_flow_key_from_mask(&odp_parms, &maskbuf);
     }
 
-    return ukey_create__(keybuf.data, keybuf.size, maskbuf.data, maskbuf.size,
-                         true, upcall->ufid, upcall->pmd_id,
-                         &upcall->put_actions, upcall->reval_seq, 0,
-                         upcall->have_recirc_ref ? upcall->recirc->id : 0,
-                         &upcall->xout);
+    udpif_key = ukey_create__(keybuf.data, keybuf.size, maskbuf.data,
+                              maskbuf.size, true, upcall->ufid, upcall->pmd_id,
+                              &upcall->put_actions, upcall->reval_seq, 0,
+                              upcall->have_recirc_ref ? upcall->recirc->id : 0,
+                              &upcall->xout);
+    udpif_key->tracer = udpif_tracer_from_ukey(upcall, udpif_key);
+
+    return udpif_key;
 }
 
 static int
@@ -2120,6 +2160,8 @@ transition_ukey_at(struct udpif_key *ukey, enum ukey_state dst,
     if (ukey->state == dst - 1 ||
        (ukey->state == UKEY_VISIBLE && dst < UKEY_DELETED) ||
        (ukey->state == UKEY_OPERATIONAL && dst == UKEY_EVICTING)) {
+       dpif_tracer_addf(ukey->tracer, "Transitioned from %d -> %d",
+                        ukey->state, dst);
         ukey->state = dst;
     } else {
         struct ds ds = DS_EMPTY_INITIALIZER;
@@ -2210,6 +2252,10 @@ ukey_delete__(struct udpif_key *ukey)
         xlate_cache_delete(ukey->xcache);
         ofpbuf_delete(ovsrcu_get(struct ofpbuf *, &ukey->actions));
         ovs_mutex_destroy(&ukey->mutex);
+        if (ukey->tracer) {
+            dpif_tracer_consume(ukey->tracer);
+            free(ukey->tracer);
+        }
         free(ukey);
     }
 }
@@ -2221,6 +2267,7 @@ ukey_delete(struct umap *umap, struct udpif_key *ukey)
     ovs_mutex_lock(&ukey->mutex);
     if (ukey->state < UKEY_DELETED) {
         cmap_remove(&umap->cmap, &ukey->cmap_node, ukey->hash);
+        dpif_tracer_add(ukey->tracer, "Deleting ukey");
         ovsrcu_postpone(ukey_delete__, ukey);
         transition_ukey(ukey, UKEY_DELETED);
     }
@@ -2295,11 +2342,13 @@ struct reval_context {
  */
 static int
 xlate_key(struct udpif *udpif, const struct nlattr *key, unsigned int len,
-          const struct dpif_flow_stats *push, struct reval_context *ctx)
+          const struct dpif_flow_stats *push, struct dpif_tracer *tracer,
+          struct reval_context *ctx)
 {
     struct ofproto_dpif *ofproto;
     ofp_port_t ofp_in_port;
     enum odp_key_fitness fitness;
+    enum xlate_error xerr;
     struct xlate_in xin;
     int error;
 
@@ -2317,12 +2366,17 @@ xlate_key(struct udpif *udpif, const struct nlattr *key, unsigned int len,
     xlate_in_init(&xin, ofproto, ofproto_dpif_get_tables_version(ofproto),
                   &ctx->flow, ofp_in_port, NULL, push->tcp_flags,
                   NULL, ctx->wc, ctx->odp_actions);
+
     if (push->n_packets) {
         xin.resubmit_stats = push;
         xin.allow_side_effects = true;
     }
     xin.xcache = ctx->xcache;
-    xlate_actions(&xin, &ctx->xout);
+    xin.trace = dpif_tracer_xlate_start(tracer, &xin);
+
+    xerr = xlate_actions(&xin, &ctx->xout);
+
+    dpif_tracer_xlate_end(tracer, &xin, &ctx->xout, xerr);
     if (fitness == ODP_FIT_TOO_LITTLE) {
         ctx->xout.slow |= SLOW_MATCH;
     }
@@ -2337,7 +2391,8 @@ xlate_ukey(struct udpif *udpif, const struct udpif_key *ukey,
     struct dpif_flow_stats push = {
         .tcp_flags = tcp_flags,
     };
-    return xlate_key(udpif, ukey->key, ukey->key_len, &push, ctx);
+    return xlate_key(udpif, ukey->key, ukey->key_len, &push,
+                     CONST_CAST(struct udpif_key *, ukey)->tracer, ctx);
 }
 
 static int
@@ -2361,6 +2416,23 @@ populate_xcache(struct udpif *udpif, struct udpif_key *ukey,
     xlate_out_uninit(&ctx.xout);
 
     return 0;
+}
+
+static const char *
+reval_result_str(enum reval_result result) {
+    switch (result) {
+        case UKEY_KEEP:
+            return "UKEY_KEEP";
+            break;
+        case UKEY_DELETE:
+            return "UKEY_DELETE";
+            break;
+        case UKEY_MODIFY:
+            return "UKEY_MODIFY";
+            break;
+        default:
+            OVS_NOT_REACHED();
+    };
 }
 
 static enum reval_result
@@ -2548,6 +2620,8 @@ revalidate_ukey(struct udpif *udpif, struct udpif_key *ukey,
         ukey->reval_seq = reval_seq;
     }
 
+    dpif_tracer_addf(ukey->tracer, "Revalidation result = %s",
+                     reval_result_str(result));
     return result;
 }
 
@@ -2679,7 +2753,7 @@ push_dp_ops(struct udpif *udpif, struct ukey_op *ops, size_t n_ops)
                 key_len = op->ukey->key_len;
             }
 
-            error = xlate_key(udpif, key, key_len, push, &ctx);
+            error = xlate_key(udpif, key, key_len, push, NULL, &ctx);
             if (error) {
                 static struct vlog_rate_limit rll = VLOG_RATE_LIMIT_INIT(1, 5);
                 VLOG_WARN_RL(&rll, "xlate_key failed (%s)!",
@@ -3024,11 +3098,19 @@ revalidate(struct revalidator *revalidator)
 
             OVS_USDT_PROBE(revalidate, flow_result, udpif, ukey, result,
                            del_reason);
+
             if (result != UKEY_KEEP) {
                 /* Takes ownership of 'recircs'. */
                 reval_op_init(&ops[n_ops++], result, udpif, ukey, &recircs,
                               &odp_actions);
+
+                dpif_tracer_addf(ukey->tracer,
+                                 "Flow marked for %s. Reason: %s.\n",
+                                 (result == UKEY_DELETE ? "deletion" :
+                                 "modification"),
+                                 flow_del_reason_to_str(del_reason));
             }
+            dpif_tracer_emit(ukey->tracer);
             ovs_mutex_unlock(&ukey->mutex);
         }
 
@@ -3129,13 +3211,16 @@ revalidator_sweep__(struct revalidator *revalidator, bool purge)
                 OVS_USDT_PROBE(revalidator_sweep__, flow_sweep_result, udpif,
                                ukey, result, del_reason);
             }
+            dpif_tracer_emit(ukey->tracer);
             ovs_mutex_unlock(&ukey->mutex);
 
             if (ukey_state == UKEY_EVICTED) {
                 /* The common flow deletion case involves deletion of the flow
                  * during the dump phase and ukey deletion here. */
                 ovs_mutex_lock(&umap->mutex);
+                dpif_tracer_add(ukey->tracer, "Sweeping ukey");
                 ukey_delete(umap, ukey);
+                dpif_tracer_emit(ukey->tracer);
                 ovs_mutex_unlock(&umap->mutex);
             }
 
@@ -3811,6 +3896,24 @@ udpif_tracer_from_frozen_upcall(const struct upcall *upcall,
     if (OVS_UNLIKELY(tracing) && state && state->tracing) {
         tracer = dpif_tracer_create(tracing,
                                     "Tracer created from frozen upcall");
+    }
+    return tracer;
+}
+
+static struct dpif_tracer *
+udpif_tracer_from_ukey(const struct upcall* upcall,
+                       const struct udpif_key *ukey)
+{
+    struct ds ds = DS_EMPTY_INITIALIZER;
+    struct dpif_tracer *tracer = NULL;
+    struct dpif_tracing *tracing = ovsrcu_get(struct dpif_tracing *,
+                                    &upcall->ofproto->backer->udpif->tracing);
+
+    if (OVS_UNLIKELY(tracing) && upcall->tracer) {
+        odp_flow_key_format(ukey->key, ukey->key_len, &ds);
+        tracer = dpif_tracer_create(tracing, "ukey(%p,key:%s)", ukey,
+                                    ds_cstr(&ds));
+        ds_destroy(&ds);
     }
     return tracer;
 }
