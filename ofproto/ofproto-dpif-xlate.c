@@ -5351,7 +5351,7 @@ compose_recirculate_and_fork(struct xlate_ctx *ctx, uint8_t table,
     ctx->freezing = true;
     recirc_id = finish_freezing__(ctx, table);
 
-    if (OVS_UNLIKELY(ctx->xin->trace) && recirc_id) {
+    if (OVS_UNLIKELY(ctx->xin->trace) && recirc_id && ctx->xin->recirc_queue) {
         if (xtrace_add_recirc_node(ctx->xin->recirc_queue,
                                     OFT_RECIRC_CONNTRACK, &ctx->xin->flow,
                                     ctx->ct_nat_action, ctx->xin->packet,

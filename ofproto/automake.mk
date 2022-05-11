@@ -40,8 +40,8 @@ ofproto_libofproto_la_SOURCES = \
 	ofproto/ofproto-dpif-rid.h \
 	ofproto/ofproto-dpif-sflow.c \
 	ofproto/ofproto-dpif-sflow.h \
-	ofproto/ofproto-dpif-xlate-trace.c \
-	ofproto/ofproto-dpif-xlate-trace.h \
+	ofproto/ofproto-dpif-trace.c \
+	ofproto/ofproto-dpif-trace.h \
 	ofproto/ofproto-dpif-upcall.c \
 	ofproto/ofproto-dpif-upcall.h \
 	ofproto/ofproto-dpif-xlate.c \
@@ -49,6 +49,8 @@ ofproto_libofproto_la_SOURCES = \
 	ofproto/ofproto-provider.h \
 	ofproto/ofproto-dpif-xlate-cache.c \
 	ofproto/ofproto-dpif-xlate-cache.h \
+	ofproto/ofproto-dpif-xlate-trace.c \
+	ofproto/ofproto-dpif-xlate-trace.h \
 	ofproto/pinsched.c \
 	ofproto/pinsched.h \
 	ofproto/tunnel.c \
