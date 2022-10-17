@@ -135,11 +135,13 @@ struct dpif_ipfix_exporter {
     struct collectors *collectors;
     uint32_t seq_number;
     struct hmap domains; /* Contains struct dpif_ipfix_domain. */
-    //time_t last_template_set_time;
+    time_t last_stats_sent_time;
     struct hmap cache_flow_key_map;  /* ipfix_flow_cache_entry. */
     struct ovs_list cache_flow_start_timestamp_list;  /* ipfix_flow_cache_entry. */
     uint32_t cache_active_timeout;  /* In seconds. */
     uint32_t cache_max_flows;
+    uint32_t stats_interval;
+    uint32_t template_interval;
     char *virtual_obs_id;
     uint8_t virtual_obs_len;
 
@@ -173,11 +175,6 @@ struct dpif_ipfix {
 };
 
 #define IPFIX_VERSION 0x000a
-
-/* When using UDP, IPFIX Template Records must be re-sent regularly.
- * The standard default interval is 10 minutes (600 seconds).
- * Cf. IETF RFC 5101 Section 10.3.6. */
-#define IPFIX_TEMPLATE_INTERVAL 600
 
 /* Cf. IETF RFC 5101 Section 3.1. */
 OVS_PACKED(
@@ -637,6 +634,8 @@ ofproto_ipfix_bridge_exporter_options_equal(
             && a->sampling_rate == b->sampling_rate
             && a->cache_active_timeout == b->cache_active_timeout
             && a->cache_max_flows == b->cache_max_flows
+            && a->stats_interval == b->stats_interval
+            && a->template_interval == b->template_interval
             && a->enable_tunnel_sampling == b->enable_tunnel_sampling
             && a->enable_input_sampling == b->enable_input_sampling
             && a->enable_output_sampling == b->enable_output_sampling
@@ -674,6 +673,8 @@ ofproto_ipfix_flow_exporter_options_equal(
     return (a->collector_set_id == b->collector_set_id
             && a->cache_active_timeout == b->cache_active_timeout
             && a->cache_max_flows == b->cache_max_flows
+            && a->stats_interval == b->stats_interval
+            && a->template_interval == b->template_interval
             && a->enable_tunnel_sampling == b->enable_tunnel_sampling
             && sset_equals(&a->targets, &b->targets)
             && nullable_string_is_equal(a->virtual_obs_id, b->virtual_obs_id));
@@ -711,6 +712,9 @@ dpif_ipfix_exporter_init(struct dpif_ipfix_exporter *exporter)
     ovs_list_init(&exporter->cache_flow_start_timestamp_list);
     exporter->cache_active_timeout = 0;
     exporter->cache_max_flows = 0;
+    exporter->stats_interval = OFPROTO_IPFIX_DEFAULT_TEMPLATE_INTERVAL;
+    exporter->template_interval = OFPROTO_IPFIX_DEFAULT_TEMPLATE_INTERVAL;
+    exporter->last_stats_sent_time = 0;
     exporter->virtual_obs_id = NULL;
     exporter->virtual_obs_len = 0;
     hmap_init(&exporter->domains);
@@ -732,6 +736,9 @@ dpif_ipfix_exporter_clear(struct dpif_ipfix_exporter *exporter)
     exporter->seq_number = 1;
     exporter->cache_active_timeout = 0;
     exporter->cache_max_flows = 0;
+    exporter->stats_interval = OFPROTO_IPFIX_DEFAULT_TEMPLATE_INTERVAL;
+    exporter->template_interval = OFPROTO_IPFIX_DEFAULT_TEMPLATE_INTERVAL;
+    exporter->last_stats_sent_time = 0;
     free(exporter->virtual_obs_id);
     exporter->virtual_obs_id = NULL;
     exporter->virtual_obs_len = 0;
@@ -759,6 +766,8 @@ dpif_ipfix_exporter_set_options(struct dpif_ipfix_exporter *exporter,
                                 const struct sset *targets,
                                 const uint32_t cache_active_timeout,
                                 const uint32_t cache_max_flows,
+                                const uint32_t stats_interval,
+                                const uint32_t template_interval,
                                 const char *virtual_obs_id) OVS_REQUIRES(mutex)
 {
     size_t virtual_obs_len;
@@ -773,6 +782,8 @@ dpif_ipfix_exporter_set_options(struct dpif_ipfix_exporter *exporter,
     }
     exporter->cache_active_timeout = cache_active_timeout;
     exporter->cache_max_flows = cache_max_flows;
+    exporter->stats_interval = stats_interval;
+    exporter->template_interval = template_interval;
     virtual_obs_len = virtual_obs_id ? strlen(virtual_obs_id) : 0;
     if (virtual_obs_len > IPFIX_VIRTUAL_OBS_MAX_LEN) {
         VLOG_WARN_RL(&rl, "Virtual obsevation ID too long (%d bytes), "
@@ -1008,6 +1019,7 @@ dpif_ipfix_bridge_exporter_set_options(
         if (!dpif_ipfix_exporter_set_options(
                 &exporter->exporter, &options->targets,
                 options->cache_active_timeout, options->cache_max_flows,
+                options->stats_interval, options->template_interval,
                 options->virtual_obs_id)) {
             return;
         }
@@ -1022,6 +1034,14 @@ dpif_ipfix_bridge_exporter_set_options(
     exporter->options = ofproto_ipfix_bridge_exporter_options_clone(options);
     exporter->probability =
         MAX(1, UINT32_MAX / exporter->options->sampling_rate);
+
+    /* Configure static observation_domain_id. */
+    struct dpif_ipfix_domain *dom;
+    HMAP_FOR_EACH_SAFE (dom, hmap_node, &(exporter->exporter.domains)) {
+        dpif_ipfix_exporter_del_domain(&exporter->exporter, dom);
+    }
+    dpif_ipfix_exporter_insert_domain(&exporter->exporter,
+                                      options->obs_domain_id);
 
     /* Run over the cache as some entries might have expired after
      * changing the timeouts. */
@@ -1103,6 +1123,7 @@ dpif_ipfix_flow_exporter_set_options(
         if (!dpif_ipfix_exporter_set_options(
                 &exporter->exporter, &options->targets,
                 options->cache_active_timeout, options->cache_max_flows,
+                options->stats_interval, options->template_interval,
                 options->virtual_obs_id)) {
             return false;
         }
@@ -2883,7 +2904,7 @@ dpif_ipfix_should_send_template(struct dpif_ipfix_exporter *exporter,
                                                    observation_domain_id);
     }
 
-    if ((domain->last_template_set_time + IPFIX_TEMPLATE_INTERVAL)
+    if ((domain->last_template_set_time + exporter->template_interval)
         <= export_time_sec) {
         domain->last_template_set_time = export_time_sec;
         return true;
@@ -2906,6 +2927,12 @@ dpif_ipfix_cache_expire(struct dpif_ipfix_exporter *exporter,
 
     max_flow_start_timestamp_usec = export_time_usec -
         1000000LL * exporter->cache_active_timeout;
+
+    if ((exporter->last_stats_sent_time + exporter->stats_interval)
+         <= export_time_sec) {
+        exporter->last_stats_sent_time = export_time_sec;
+        ipfix_send_exporter_data_msg(exporter, export_time_sec);
+    }
 
     LIST_FOR_EACH_SAFE (entry, cache_flow_start_timestamp_list_node,
                         &exporter->cache_flow_start_timestamp_list) {
@@ -2934,8 +2961,6 @@ dpif_ipfix_cache_expire(struct dpif_ipfix_exporter *exporter,
                      entry->flow_key.obs_domain_id);
             ipfix_send_template_msgs(exporter, export_time_sec,
                                      entry->flow_key.obs_domain_id);
-            /* Send Exporter Process Statistics. */
-            ipfix_send_exporter_data_msg(exporter, export_time_sec);
         }
 
         ovs_list_remove(&entry->cache_flow_start_timestamp_list_node);
