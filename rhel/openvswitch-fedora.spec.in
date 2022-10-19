@@ -166,6 +166,7 @@ This package provides IPsec tunneling support for OVS tunnels.
 %else
         --disable-libcapng \
 %endif
+        --enable-usdt-probes \
 %if %{with dpdk}
         --with-dpdk=shared \
 %endif
