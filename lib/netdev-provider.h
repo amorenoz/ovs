@@ -488,7 +488,7 @@ struct netdev_class {
     int (*get_custom_stats)(const struct netdev *netdev,
                             struct netdev_custom_stats *custom_stats);
 
-    /* Stores the features supported by 'netdev' into each of '*current',
+    /* Stores the maximum features supported by 'netdev' into each of '*current',
      * '*advertised', '*supported', and '*peer'.  Each value is a bitmap of
      * NETDEV_F_* bits.
      *
@@ -499,6 +499,15 @@ struct netdev_class {
                         enum netdev_features *advertised,
                         enum netdev_features *supported,
                         enum netdev_features *peer);
+
+    /* Stores the current and maximum supported link speed by 'netdev' into
+     * each of '*current' and '*max'. Each value represents the speed in Mbps.
+     * If any of the speeds is unknown, a zero value must be returned.
+     *
+     * This function may be set to null if it would always return EOPNOTSUPP.
+     */
+    int (*get_speed)(const struct netdev *netdev, uint32_t *current,
+                     uint32_t *max);
 
     /* Set the features advertised by 'netdev' to 'advertise', which is a
      * set of NETDEV_F_* bits.
