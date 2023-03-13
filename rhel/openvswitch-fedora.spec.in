@@ -176,6 +176,7 @@ This package provides IPsec tunneling support for OVS tunnels.
 %endif
         --enable-ssl \
         --disable-static \
+        --enable-usdt-probes \
         --enable-shared \
         --with-pkidir=%{_sharedstatedir}/openvswitch/pki \
         PYTHON3=%{__python3}
