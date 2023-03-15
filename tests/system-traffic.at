@@ -2230,6 +2230,33 @@ AT_CHECK([tc class show dev ovs-p1 | grep -q 'class htb .* HTB_CONF'])
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
 
+AT_SETUP([QoS - 64bit])
+AT_SKIP_IF([test $HAVE_TC = no])
+OVS_TRAFFIC_VSWITCHD_START()
+
+dnl Create a tap interface and configure it to have a big rate.
+AT_CHECK([ip tuntap add tap0 mode tap])
+on_exit 'ip tuntap del tap0 mode tap'
+AT_CHECK([ethtool -s tap0 speed 100000 duplex full])
+AT_CHECK([ovs-vsctl add-port br0 tap0 -- set interface tap0 type=tap])
+
+dnl Configure the QoS with rates that require 64bits.
+AT_CHECK([ovs-vsctl set port tap0 qos=@qos dnl
+            -- --id=@qos create qos dnl
+               type=linux-htb other-config:max-rate=50000000000 queues:0=@queue dnl
+            -- --id=@queue create queue dnl
+               other_config:min-rate=40000000000 other_config:max-rate=50000000000 dnl
+               other_config:burst=50000000000],
+         [ignore], [ignore])
+
+OVS_WAIT_UNTIL([tc qdisc show dev tap0 | grep -q htb])
+
+m4_define([HTB_CONF], [rate 40Gbit ceil 50Gbit burst 1955030000b cburst 1955031250b])
+AT_CHECK([tc class show dev tap0 | grep -q 'class htb .* HTB_CONF'])
+
+OVS_TRAFFIC_VSWITCHD_STOP
+AT_CLEANUP
+
 AT_BANNER([conntrack])
 
 AT_SETUP([conntrack - controller])
