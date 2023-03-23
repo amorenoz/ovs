@@ -530,7 +530,7 @@ struct netdev_class {
      *   accumulative burst size of 'kpkts' kilo packets.
      *
      * This function may be set to null if policing is not supported. */
-    int (*set_policing)(struct netdev *netdev, unsigned int kbits_rate,
+    int (*set_policing)(struct netdev *netdev, uint32_t kbits_rate,
                         unsigned int kbits_burst, unsigned int kpkts_rate,
                         unsigned int kpkts_burst);
 
