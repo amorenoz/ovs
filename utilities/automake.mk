@@ -22,6 +22,7 @@ scripts_SCRIPTS += \
 scripts_DATA += utilities/ovs-lib
 usdt_SCRIPTS += \
 	utilities/usdt-scripts/bridge_loop.bt \
+	utilities/usdt-scripts/drop_monitor.py \
 	utilities/usdt-scripts/dpif_nl_exec_monitor.py \
 	utilities/usdt-scripts/reval_monitor.py \
 	utilities/usdt-scripts/upcall_cost.py \
@@ -70,6 +71,7 @@ EXTRA_DIST += \
 	utilities/docker/debian/build-kernel-modules.sh \
 	utilities/usdt-scripts/bridge_loop.bt \
 	utilities/usdt-scripts/dpif_nl_exec_monitor.py \
+	utilities/usdt-scripts/drop_monitor.py \
 	utilities/usdt-scripts/reval_monitor.py \
 	utilities/usdt-scripts/upcall_cost.py \
 	utilities/usdt-scripts/upcall_monitor.py
@@ -142,6 +144,7 @@ FLAKE8_PYFILES += utilities/ovs-pcap.in \
 	utilities/ovs-tcpdump.in \
 	utilities/ovs-pipegen.py \
 	utilities/usdt-scripts/dpif_nl_exec_monitor.py \
+	utilities/usdt-scripts/drop_monitor.py \
 	utilities/usdt-scripts/upcall_monitor.py \
 	utilities/usdt-scripts/upcall_cost.py
 
