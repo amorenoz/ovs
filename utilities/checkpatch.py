@@ -665,6 +665,11 @@ easy_to_misuse_api = [
             'lib/ovs-rcu.c',
             'Are you sure you need to use ovsrcu_barrier(), '
             'in most cases ovsrcu_synchronize() will be fine?'),
+        ('netdev_features_to_bps',
+            'lib/netdev.c',
+            'Are you sure you need to use netdev_features_to_bps()? '
+            'If you want to retrieve the current and/or maximum link speed '
+            'consider using netdev_get_speed() instead'),
         ]
 
 checks += [
