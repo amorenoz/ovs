@@ -7449,6 +7449,13 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
 
         case OFPACT_SAMPLE:
             xlate_sample_action(ctx, ofpact_get_SAMPLE(a));
+            /* If the last action is to SAMPLE, it means we're actually
+             * dropping the packet, apart from also generating an IPFIX sample.
+             * Make the drop explicit if the datapath supports it. */
+            if (last &&
+                ovs_explicit_drop_action_supported(ctx->xbridge->ofproto)) {
+                put_drop_action(ctx->odp_actions, 0);
+            }
             break;
 
         case OFPACT_CLONE:
