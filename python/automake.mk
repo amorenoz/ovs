@@ -66,6 +66,9 @@ ovs_pytests = \
 ovs_flowviz = \
 	python/ovs/flowviz/__init__.py \
 	python/ovs/flowviz/main.py \
+	python/ovs/flowviz/odp.py \
+	python/ovs/flowviz/ofp.py \
+	python/ovs/flowviz/process.py \
 	python/ovs/flowviz/ovs-flowviz
 
 # These python files are used at build time but not runtime,
