@@ -377,7 +377,7 @@ class Session(object):
         self.stream = None
         self.pstream = None
         self.seqno = 0
-        if type(remotes) != list:
+        if not isinstance(remotes, list):
             remotes = [remotes]
         self.remotes = remotes
         random.shuffle(self.remotes)
