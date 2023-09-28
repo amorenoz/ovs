@@ -19,6 +19,7 @@ from ovs.flowviz.main import maincli
 from ovs.flowviz.process import (
     OpenFlowFactory,
     JSONProcessor,
+    ConsoleProcessor,
 )
 
 
@@ -29,7 +30,7 @@ def openflow(opts):
     pass
 
 
-class JSONPrint (OpenFlowFactory, JSONProcessor):
+class JSONPrint(OpenFlowFactory, JSONProcessor):
     def __init__(self, opts):
         super().__init__(opts)
 
@@ -41,3 +42,28 @@ def json(opts):
     proc = JSONPrint(opts)
     proc.process()
     print(proc.json_string())
+
+
+class OFConsoleProcessor(OpenFlowFactory, ConsoleProcessor):
+    def __init__(self, opts, heat_map):
+        super().__init__(opts, heat_map)
+
+
+@openflow.command()
+@click.option(
+    "-h",
+    "--heat-map",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Create heat-map with packet and byte counters",
+)
+@click.pass_obj
+def console(opts, heat_map):
+    """Print the flows in the console with some style"""
+    proc = OFConsoleProcessor(
+        opts,
+        heat_map=["n_packets", "n_bytes"] if heat_map else [],
+    )
+    proc.process()
+    proc.print()

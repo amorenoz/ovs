@@ -17,13 +17,20 @@ import configparser
 import click
 
 from ovs.flow.filter import OFFilter
+from pkg_resources import resource_filename
+from typing import List
+
+_default_config_file = "ovs-flowviz.conf"
+_default_config_path = os.path.abspath(
+    os.path.join(resource_filename(__name__, ""), _default_config_file)
+)
 
 
 class Options(dict):
     """Options dictionary"""
 
 
-def validate_input(ctx, param, value):
+def validate_input(ctx, param, value: List[str]):
     """Validate the "-i" option"""
     result = list()
     for input_str in value:
@@ -51,6 +58,20 @@ def validate_input(ctx, param, value):
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 @click.option(
+    "-c",
+    "--config",
+    help="Use config file",
+    type=click.Path(),
+    default=_default_config_path,
+    show_default=True,
+)
+@click.option(
+    "--style",
+    help="Select style (defined in config file)",
+    default=None,
+    show_default=True,
+)
+@click.option(
     "-i",
     "--input",
     "filename",
@@ -71,8 +92,16 @@ def validate_input(ctx, param, value):
     type=str,
     show_default=False,
 )
+@click.option(
+    "-l",
+    "--highlight",
+    help="Highlight flows that match the filter expression."
+    " Run 'ofparse filter' for a detailed description of the filtering syntax",
+    type=str,
+    show_default=False,
+)
 @click.pass_context
-def maincli(ctx, filename, filter):
+def maincli(ctx, config, style, filename, filter, highlight):
     """
     OpenvSwitch flow visualization utility.
 
@@ -80,12 +109,26 @@ def maincli(ctx, filename, filter):
     (such as the output of ovs-ofctl dump-flows or ovs-appctl dpctl/dump-flows)
     and prints them in different formats.
     """
+    ctx.obj = Options()
     ctx.obj["filename"] = filename or None
     if filter:
         try:
             ctx.obj["filter"] = OFFilter(filter)
         except Exception as e:
             raise click.BadParameter("Wrong filter syntax: {}".format(e))
+
+    if highlight:
+        try:
+            ctx.obj["highlight"] = OFFilter(highlight)
+        except Exception as e:
+            raise click.BadParameter("Wrong filter syntax: {}".format(e))
+
+    config_file = config or _default_config_path
+    parser = configparser.ConfigParser()
+    parser.read(config_file)
+
+    ctx.obj["config"] = parser
+    ctx.obj["style"] = style
 
 
 @maincli.command(hidden=True)
