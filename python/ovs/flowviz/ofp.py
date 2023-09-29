@@ -14,15 +14,14 @@
 
 import click
 
+from ovs.flowviz.html_format import HTMLBuffer, HTMLFormatter, HTMLStyle
 from ovs.flowviz.main import maincli
-
 from ovs.flowviz.process import (
     OpenFlowFactory,
     JSONProcessor,
     ConsoleProcessor,
     FileProcessor,
 )
-from ovs.flowviz.html_format import HTMLBuffer, HTMLFormatter, HTMLStyle
 
 
 @maincli.group(subcommand_metavar="FORMAT")
