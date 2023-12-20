@@ -57,6 +57,7 @@
 #include "openvswitch/list.h"
 #include "openvswitch/ofp-actions.h"
 #include "openvswitch/ofp-ed-props.h"
+#include "openvswitch/usdt-probes.h"
 #include "openvswitch/vlog.h"
 #include "ovs-lldp.h"
 #include "ovs-router.h"
@@ -4686,6 +4687,9 @@ xlate_table_action(struct xlate_ctx *ctx, ofp_port_t in_port, uint8_t table_id,
                                            &ctx->table_id, in_port,
                                            may_packet_in, honor_table_miss,
                                            ctx->xin->xcache, ctx->conj_flows);
+
+        /* TRACE HERE!*/
+
         /* Swap back. */
         if (with_ct_orig) {
             tuple_swap(&ctx->xin->flow, ctx->wc);
@@ -7243,6 +7247,13 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         return;
     }
 
+    /*TRACE HERE with rule data*/
+    OVS_USDT_PROBE(xlate, do_xlate_actions, ofpacts, ofpacts_len,
+                   dp_packet_data(ctx->xin->packet),
+                   dp_packet_data(ctx->xin->packet),
+                   ctx->table_id, ctx->rule_cookie,
+                   ctx->xin->upcall_id);
+
     bool exit = false;
     OFPACT_FOR_EACH (a, ofpacts, ofpacts_len) {
         struct ofpact_controller *controller;
@@ -8227,6 +8238,9 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
             ctx.xin->resubmit_stats, &ctx.table_id,
             flow->in_port.ofp_port, true, true, ctx.xin->xcache,
             ctx.conj_flows);
+
+        /* TRACE HERE?*/
+
         if (ctx.xin->resubmit_stats) {
             rule_dpif_credit_stats(ctx.rule, ctx.xin->resubmit_stats, false);
         }

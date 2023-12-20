@@ -171,6 +171,9 @@ struct xlate_in {
     /* If true, port names are displayed instead of port numbers in
      * tracing translation. */
     bool names;
+
+    /* Upcall Id. */
+    bool upcall_id;
 };
 
 void xlate_ofproto_set(struct ofproto_dpif *, const char *name, struct dpif *,

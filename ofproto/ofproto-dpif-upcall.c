@@ -38,6 +38,7 @@
 #include "ofproto-dpif-xlate-cache.h"
 #include "ofproto-dpif-xlate-trace.h"
 #include "ovs-rcu.h"
+#include "ovs-thread.h"
 #include "packets.h"
 #include "openvswitch/poll-loop.h"
 #include "seq.h"
@@ -256,6 +257,7 @@ struct upcall {
     uint64_t odp_actions_stub[1024 / 8]; /* Stub for odp_actions. */
 
     struct dpif_tracer *tracer;    /* Upcall dpif tracer. */
+    uint64_t id;                   /* Upcall id. */
 };
 
 /* Ukeys must transition through these states using transition_ukey(). */
@@ -423,7 +425,7 @@ static int upcall_receive(struct upcall *, const struct dpif_backer *,
                           const struct nlattr *userdata, const struct flow *,
                           const unsigned int mru,
                           const ovs_u128 *ufid, const unsigned pmd_id,
-                          char **errorp);
+                          const uint64_t upcall_id, char **errorp);
 static void upcall_uninit(struct upcall *);
 
 static void udpif_flow_rebalance(struct udpif *udpif);
@@ -821,6 +823,14 @@ udpif_use_ufid(struct udpif *udpif)
     return enable && udpif->backer->rt_support.ufid;
 }
 
+static inline
+uint64_t upcall_id(uint32_t thread_id)
+{
+    static thread_local uint32_t id;
+    id++;
+    return (uint64_t) thread_id << 32 | id;
+}
+
 
 static unsigned long
 udpif_get_n_flows(struct udpif *udpif)
@@ -922,7 +932,11 @@ recv_upcalls(struct handler *handler)
 
         error = upcall_receive(upcall, udpif->backer, &dupcall->packet,
                                dupcall->type, dupcall->userdata, flow, mru,
-                               &dupcall->ufid, PMD_ID_NULL, &errorp);
+                               &dupcall->ufid, PMD_ID_NULL,
+                               upcall_id(handler->handler_id), &errorp);
+
+        /* add upcall->uid here to avoid adding yet another argumen to this func??? */
+
         if (error) {
             if (error == ENODEV) {
                 /* Received packet on datapath port for which we couldn't
@@ -1233,6 +1247,7 @@ upcall_receive(struct upcall *upcall, const struct dpif_backer *backer,
                const struct nlattr *userdata, const struct flow *flow,
                const unsigned int mru,
                const ovs_u128 *ufid, const unsigned pmd_id,
+               const uint64_t upcall_id,
                char **errorp)
 {
     int error;
@@ -1285,6 +1300,7 @@ upcall_receive(struct upcall *upcall, const struct dpif_backer *backer,
     upcall->out_tun_key = NULL;
     upcall->actions = NULL;
     upcall->tracer = udpif_tracer_from_upcall(upcall);
+    upcall->id = upcall_id;
 
     return 0;
 }
@@ -1336,6 +1352,7 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
     upcall->reval_seq = seq_read(udpif->reval_seq);
 
     xin.trace = dpif_tracer_xlate_start(upcall->tracer, &xin);
+    xin.upcall_id = upcall->id;
 
     xerr = xlate_actions(&xin, &upcall->xout);
 
@@ -1460,7 +1477,8 @@ upcall_cb(const struct dp_packet *packet, const struct flow *flow, ovs_u128 *ufi
     atomic_read_relaxed(&enable_megaflows, &megaflow);
 
     error = upcall_receive(&upcall, udpif->backer, packet, type, userdata,
-                           flow, 0, ufid, pmd_id, NULL);
+                           flow, 0, ufid, pmd_id, upcall_id(pmd_id),
+                           NULL);
     if (error) {
         return error;
     }
@@ -1560,6 +1578,14 @@ process_upcall(struct udpif *udpif, struct upcall *upcall,
     const struct dp_packet *packet = upcall->packet;
     const struct flow *flow = upcall->flow;
     size_t actions_len = 0;
+
+    OVS_USDT_PROBE(dpif_upcall, process_upcall,
+                   udpif->dpif->full_name,
+                   upcall->type,
+                   dp_packet_data(upcall->packet),
+                   dp_packet_size(upcall->packet),
+                   upcall->key, upcall->key_len,
+                   upcall->id);
 
     switch (upcall->type) {
     case MISS_UPCALL:
@@ -1737,9 +1763,16 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
             if (ukey_install(udpif, ukey)) {
                 upcall->ukey_persists = true;
                 put_op_init(&ops[n_ops++], ukey, DPIF_FP_CREATE);
-                dpif_tracer_addf(upcall->tracer,
-                                 "Installing flow in datapath. udpif_key %p",
-                                 ukey);
+                OVS_USDT_PROBE(dpif_upcall, put_op,
+                               udpif->dpif->full_name,
+                               ukey->key,
+                               ukey->key_len,
+                               ukey->mask,
+                               ukey->mask_len,
+                               ops[n_ops].dop.flow_put.actions,
+                               ops[n_ops].dop.flow_put.actions_len,
+                               ukey->ufid_present ? &ukey->ufid : NULL,
+                               upcall->id);
             }
         }
 
@@ -1757,6 +1790,13 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
             op->dop.execute.probe = false;
             op->dop.execute.mtu = upcall->mru;
             op->dop.execute.hash = upcall->hash;
+            OVS_USDT_PROBE(dpif_upcall, exec_op,
+                           udpif->dpif->full_name,
+                           dp_packet_data(op->dop.execute.packet),
+                           dp_packet_size(op->dop.execute.packet),
+                           upcall->odp_actions.data,
+                           upcall->odp_actions.size,
+                           upcall->id);
         }
     }
 
@@ -3756,7 +3796,8 @@ udpif_tracer_from_ukey(const struct upcall* upcall,
 
     if (OVS_UNLIKELY(tracing) && upcall->tracer) {
         odp_flow_key_format(ukey->key, ukey->key_len, &ds);
-        tracer = dpif_tracer_create(tracing, "ukey(%p,key:%s)", ukey,
+        tracer = dpif_tracer_create(tracing,
+                                    "Tracer created from ukey(key:%s)",
                                     ds_cstr(&ds));
         ds_destroy(&ds);
     }
