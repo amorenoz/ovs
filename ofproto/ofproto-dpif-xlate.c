@@ -7249,10 +7249,9 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
 
     /*TRACE HERE with rule data*/
     OVS_USDT_PROBE(xlate, do_xlate_actions, ofpacts, ofpacts_len,
-                   dp_packet_data(ctx->xin->packet),
-                   dp_packet_data(ctx->xin->packet),
-                   ctx->table_id, ctx->rule_cookie,
-                   ctx->xin->upcall_id);
+                   ctx->xin->packet? dp_packet_data(ctx->xin->packet) : NULL,
+                   ctx->xin->packet? dp_packet_size(ctx->xin->packet) : 0,
+                   ctx->table_id, &ctx->rule_cookie);
 
     bool exit = false;
     OFPACT_FOR_EACH (a, ofpacts, ofpacts_len) {

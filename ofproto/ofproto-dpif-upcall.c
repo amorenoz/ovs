@@ -1319,6 +1319,12 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
     stats.used = time_msec();
     stats.tcp_flags = ntohs(upcall->flow->tcp_flags);
 
+    OVS_USDT_PROBE(upcall_xlate, start,
+                   udpif->dpif->full_name,
+                   dp_packet_data(upcall->packet),
+                   dp_packet_size(upcall->packet),
+                   upcall->key, upcall->key_len);
+
     xlate_in_init(&xin, upcall->ofproto,
                   ofproto_dpif_get_tables_version(upcall->ofproto),
                   upcall->flow, upcall->ofp_in_port, NULL,
@@ -1406,6 +1412,15 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
     if (upcall->type == MISS_UPCALL) {
         upcall->ukey = ukey_create_from_upcall(upcall, wc);
     }
+
+    OVS_USDT_PROBE(upcall_xlate, end,
+                   udpif->dpif->full_name,
+                   dp_packet_data(upcall->packet),
+                   dp_packet_size(upcall->packet),
+                   (upcall->ukey && upcall->ukey->ufid_present) ?
+                       &upcall->ukey->ufid : NULL,
+                   odp_actions->data,
+                   odp_actions->size);
 }
 
 static void
@@ -1578,14 +1593,6 @@ process_upcall(struct udpif *udpif, struct upcall *upcall,
     const struct dp_packet *packet = upcall->packet;
     const struct flow *flow = upcall->flow;
     size_t actions_len = 0;
-
-    OVS_USDT_PROBE(dpif_upcall, process_upcall,
-                   udpif->dpif->full_name,
-                   upcall->type,
-                   dp_packet_data(upcall->packet),
-                   dp_packet_size(upcall->packet),
-                   upcall->key, upcall->key_len,
-                   upcall->id);
 
     switch (upcall->type) {
     case MISS_UPCALL:
@@ -1771,8 +1778,7 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
                                ukey->mask_len,
                                ops[n_ops].dop.flow_put.actions,
                                ops[n_ops].dop.flow_put.actions_len,
-                               ukey->ufid_present ? &ukey->ufid : NULL,
-                               upcall->id);
+                               ukey->ufid_present ? &ukey->ufid : NULL);
             }
         }
 
@@ -1796,7 +1802,8 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
                            dp_packet_size(op->dop.execute.packet),
                            upcall->odp_actions.data,
                            upcall->odp_actions.size,
-                           upcall->id);
+                           (upcall->ukey && upcall->ukey->ufid_present) ?
+                               &upcall->ukey->ufid : NULL);
         }
     }
 
