@@ -27,6 +27,7 @@ usdt_SCRIPTS += \
 	utilities/usdt-scripts/kernel_delay.rst \
 	utilities/usdt-scripts/reval_monitor.py \
 	utilities/usdt-scripts/upcall_cost.py \
+	utilities/usdt-scripts/upcall_trace.py \
 	utilities/usdt-scripts/upcall_monitor.py
 
 completion_SCRIPTS += \
@@ -76,6 +77,7 @@ EXTRA_DIST += \
 	utilities/usdt-scripts/kernel_delay.rst \
 	utilities/usdt-scripts/reval_monitor.py \
 	utilities/usdt-scripts/upcall_cost.py \
+	utilities/usdt-scripts/upcall_trace.py \
 	utilities/usdt-scripts/upcall_monitor.py
 MAN_ROOTS += \
 	utilities/ovs-testcontroller.8.in \
@@ -147,6 +149,7 @@ FLAKE8_PYFILES += utilities/ovs-pcap.in \
 	utilities/ovs-pipegen.py \
 	utilities/usdt-scripts/dpif_nl_exec_monitor.py \
 	utilities/usdt-scripts/upcall_monitor.py \
-	utilities/usdt-scripts/upcall_cost.py
+	utilities/usdt-scripts/upcall_cost.py \
+	utilities/usdt-scripts/upcall_trace.py
 
 include utilities/bugtool/automake.mk
