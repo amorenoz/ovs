@@ -1534,7 +1534,7 @@ bridge_configure_sflow(struct bridge *br, int *sflow_bridge_number)
 static bool
 ovsrec_ipfix_is_valid(const struct ovsrec_ipfix *ipfix)
 {
-    return ipfix && ipfix->n_targets > 0;
+    return ipfix && (ipfix->external || ipfix->n_targets > 0);
 }
 
 /* Returns whether a Flow_Sample_Collector_Set row is valid. */
@@ -1642,6 +1642,8 @@ bridge_configure_ipfix(struct bridge *br)
                 virtual_obs_id = smap_get(&fe_cfg->ipfix->other_config,
                                           "virtual_obs_id");
                 opts->virtual_obs_id = nullable_xstrdup(virtual_obs_id);
+                opts->external = fe_cfg->ipfix->external
+                    ?  *fe_cfg->ipfix->external : false;
                 opts++;
             }
         }

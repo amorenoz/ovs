@@ -6960,6 +6960,12 @@ ovs-vsctl add-port br0 p0 -- set Interface p0 type=patch options:peer=p1 \
       </p>
     </column>
 
+    <column name="external">
+      Optional flag to indicate that raw samples are to be sent to the
+      "ovs_packet" netlink group instead of being processed by
+      ovs-vswitchd. Experimental, kernel-only.
+    </column>
+
     <group title="Per-Bridge Sampling">
       <p>
         These values affect only per-bridge sampling.  See above for a
