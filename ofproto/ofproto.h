@@ -101,6 +101,7 @@ struct ofproto_ipfix_flow_exporter_options {
     uint32_t stats_interval;
     bool enable_tunnel_sampling;
     char *virtual_obs_id;
+    bool external;
 };
 
 struct ofproto_rstp_status {

@@ -676,6 +676,7 @@ ofproto_ipfix_flow_exporter_options_equal(
             && a->stats_interval == b->stats_interval
             && a->template_interval == b->template_interval
             && a->enable_tunnel_sampling == b->enable_tunnel_sampling
+            && a->external == b->external
             && sset_equals(&a->targets, &b->targets)
             && nullable_string_is_equal(a->virtual_obs_id, b->virtual_obs_id));
 }
@@ -1096,7 +1097,7 @@ dpif_ipfix_flow_exporter_set_options(
     const struct ofproto_ipfix_flow_exporter_options *options,
     bool *options_changed) OVS_REQUIRES(mutex)
 {
-    if (sset_is_empty(&options->targets)) {
+    if (!options->external && sset_is_empty(&options->targets)) {
         /* No point in doing any work if there are no targets. */
         if (exporter->options) {
             dpif_ipfix_flow_exporter_clear(exporter);
@@ -1119,7 +1120,7 @@ dpif_ipfix_flow_exporter_set_options(
     if (*options_changed
         || collectors_count(exporter->exporter.collectors)
             < sset_count(&options->targets)) {
-        if (!dpif_ipfix_exporter_set_options(
+        if (!options->external && !dpif_ipfix_exporter_set_options(
                 &exporter->exporter, &options->targets,
                 options->cache_active_timeout, options->cache_max_flows,
                 options->stats_interval, options->template_interval,
@@ -1303,6 +1304,23 @@ dpif_ipfix_get_flow_exporter_tunnel_sampling(const struct dpif_ipfix *di,
 
     return ret;
 }
+
+bool
+dpif_ipfix_get_flow_exporter_external(const struct dpif_ipfix *di,
+                                      const uint32_t collector_set_id)
+    OVS_EXCLUDED(mutex)
+{
+    ovs_mutex_lock(&mutex);
+    struct dpif_ipfix_flow_exporter_map_node *node
+        = dpif_ipfix_find_flow_exporter_map_node(di, collector_set_id);
+    bool ret = (node
+                && node->exporter.options
+                && node->exporter.options->external);
+    ovs_mutex_unlock(&mutex);
+
+    return ret;
+}
+
 
 static void
 dpif_ipfix_clear(struct dpif_ipfix *di) OVS_REQUIRES(mutex)
