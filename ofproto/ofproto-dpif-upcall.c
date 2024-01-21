@@ -1172,7 +1172,7 @@ compose_slow_path(struct udpif *udpif, struct xlate_out *xout,
     }
 
     odp_put_userspace_action(pid, &cookie, sizeof cookie,
-                             ODPP_NONE, false, buf, NULL);
+                             ODPP_NONE, false, false, buf, NULL);
 
     if (meter_id != UINT32_MAX) {
         nl_msg_end_nested(buf, ac_offset);

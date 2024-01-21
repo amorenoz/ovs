@@ -443,6 +443,8 @@ format_odp_userspace_action(struct ds *ds, const struct nlattr *attr,
                                                  .optional = true },
         [OVS_USERSPACE_ATTR_ACTIONS] = { .type = NL_A_UNSPEC,
                                                  .optional = true },
+        [OVS_USERSPACE_ATTR_MCAST] = { .type = NL_A_FLAG,
+                                       .optional = true },
     };
     struct nlattr *a[ARRAY_SIZE(ovs_userspace_policy)];
     const struct nlattr *userdata_attr;
@@ -537,6 +539,10 @@ format_odp_userspace_action(struct ds *ds, const struct nlattr *attr,
 
     if (a[OVS_USERSPACE_ATTR_ACTIONS]) {
         ds_put_cstr(ds, ",actions");
+    }
+
+    if (a[OVS_USERSPACE_ATTR_MCAST]) {
+        ds_put_cstr(ds, ",multicast");
     }
 
     tunnel_out_port_attr = a[OVS_USERSPACE_ATTR_EGRESS_TUN_PORT];
@@ -1337,6 +1343,7 @@ parse_odp_userspace_action(const char *s, struct ofpbuf *actions)
     void *user_data = NULL;
     size_t user_data_size = 0;
     bool include_actions = false;
+    bool multicast = false;
     int res;
 
     if (!ovs_scan(s, "userspace(pid=%"SCNi32"%n", &pid, &n)) {
@@ -1483,11 +1490,19 @@ parse_odp_userspace_action(const char *s, struct ofpbuf *actions)
 
     {
         int n1 = -1;
+        if (ovs_scan(&s[n], ",multicast%n", &n1)) {
+            n += n1;
+            multicast= true;
+        }
+    }
+
+    {
+        int n1 = -1;
         if (ovs_scan(&s[n], ",tunnel_out_port=%"SCNi32")%n",
                      &tunnel_out_port, &n1)) {
             res = odp_put_userspace_action(pid, user_data, user_data_size,
                                            tunnel_out_port, include_actions,
-                                           actions, NULL);
+                                           multicast, actions, NULL);
             if (!res) {
                 res = n + n1;
             }
@@ -1495,7 +1510,7 @@ parse_odp_userspace_action(const char *s, struct ofpbuf *actions)
         } else if (s[n] == ')') {
             res = odp_put_userspace_action(pid, user_data, user_data_size,
                                            ODPP_NONE, include_actions,
-                                           actions, NULL);
+                                           multicast, actions, NULL);
             if (!res) {
                 res = n + 1;
             }
@@ -7713,6 +7728,7 @@ odp_put_userspace_action(uint32_t pid,
                          const void *userdata, size_t userdata_size,
                          odp_port_t tunnel_out_port,
                          bool include_actions,
+                         bool multicast,
                          struct ofpbuf *odp_actions, size_t *odp_actions_ofs)
 {
     size_t userdata_ofs;
@@ -7748,6 +7764,9 @@ odp_put_userspace_action(uint32_t pid,
     }
     if (include_actions) {
         nl_msg_put_flag(odp_actions, OVS_USERSPACE_ATTR_ACTIONS);
+    }
+    if (multicast) {
+        nl_msg_put_flag(odp_actions, OVS_USERSPACE_ATTR_MCAST);
     }
     if (nl_attr_oversized(odp_actions->size - offset - NLA_HDRLEN)) {
         return -E2BIG;
