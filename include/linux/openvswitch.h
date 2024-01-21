@@ -749,6 +749,8 @@ enum ovs_userspace_attr {
 	OVS_USERSPACE_ATTR_EGRESS_TUN_PORT,  /* Optional, u32 output port
 					      * to get tunnel info. */
 	OVS_USERSPACE_ATTR_ACTIONS,   /* Optional flag to get actions. */
+	OVS_USERSPACE_ATTR_MCAST,     /* Optional flag to send the packet to
+					 the "ovs_packet" multicast group. */
 	__OVS_USERSPACE_ATTR_MAX
 };
 
