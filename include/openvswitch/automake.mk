@@ -4,6 +4,7 @@ openvswitchinclude_HEADERS = \
 	include/openvswitch/dynamic-string.h \
 	include/openvswitch/hmap.h \
 	include/openvswitch/flow.h \
+	include/openvswitch/flow_sample.h \
 	include/openvswitch/geneve.h \
 	include/openvswitch/json.h \
 	include/openvswitch/list.h \

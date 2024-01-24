@@ -8855,3 +8855,22 @@ odp_vxlan_tun_opts_from_attr(const struct nlattr *tun_attr, ovs_be16 *id,
 
     return 0;
 }
+
+int sample_decode_action_cookie(const void *user_data, uint16_t len,
+                                struct flow_sample *sample) {
+    struct user_action_cookie *cookie;
+
+    if (len != sizeof *cookie) {
+        return EINVAL;
+    }
+
+    cookie = (struct user_action_cookie *) user_data;
+    if (cookie->type != USER_ACTION_COOKIE_FLOW_SAMPLE)
+        return EINVAL;
+
+    if (sample) {
+        memcpy(sample, &cookie->flow_sample, sizeof *sample);
+    }
+    return 0;
+}
+

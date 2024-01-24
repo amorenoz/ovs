@@ -24,6 +24,7 @@
 #include "flow.h"
 #include "hash.h"
 #include "openvswitch/hmap.h"
+#include "openvswitch/flow_sample.h"
 #include "openvswitch/ofp-actions.h"
 #include "openvswitch/uuid.h"
 #include "odp-netlink.h"
@@ -330,15 +331,8 @@ struct user_action_cookie {
             uint32_t reason;        /* enum slow_path_reason. */
         } slow_path;
 
-        struct {
-            /* USER_ACTION_COOKIE_FLOW_SAMPLE. */
-            uint16_t probability;   /* Sampling probability. */
-            uint32_t collector_set_id; /* ID of IPFIX collector set. */
-            uint32_t obs_domain_id; /* Observation Domain ID. */
-            uint32_t obs_point_id;  /* Observation Point ID. */
-            odp_port_t output_odp_port; /* The output odp port. */
-            enum nx_action_sample_direction direction;
-        } flow_sample;
+        /* USER_ACTION_COOKIE_FLOW_SAMPLE. */
+        struct flow_sample flow_sample;
 
         struct {
             /* USER_ACTION_COOKIE_IPFIX. */
