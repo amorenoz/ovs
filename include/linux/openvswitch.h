@@ -159,6 +159,7 @@ struct ovs_vport_stats {
 /* Packet transfer. */
 
 #define OVS_PACKET_FAMILY "ovs_packet"
+#define OVS_PACKET_MCGROUP "ovs_packet"
 #define OVS_PACKET_VERSION 0x1
 
 enum ovs_packet_cmd {
