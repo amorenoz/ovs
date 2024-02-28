@@ -23,7 +23,7 @@
 #include "util.h"
 #include "netlink.h"
 #include "netlink-socket.h"
-#include "odp-util.h"
+#include "openvswitch/flow_sample.h"
 #include "openvswitch/ofp-actions.h"
 #include "openvswitch/ofp-print.h"
 #include "openvswitch/types.h"
@@ -46,7 +46,8 @@ struct sample {
 
 static int
 parse_raw_sample(struct ofpbuf *buf, struct sample *sample) {
-    struct user_action_cookie cookie = {};
+    struct flow_sample flow_sample = {};
+    int err;
 
     static const struct nl_policy ovs_packet_policy[] = {
         /* Always present. */
@@ -116,22 +117,16 @@ parse_raw_sample(struct ofpbuf *buf, struct sample *sample) {
     struct nlattr *userdata = a[OVS_PACKET_ATTR_USERDATA];
     size_t userdata_len = nl_attr_get_size(userdata);
 
-    if (userdata_len != sizeof cookie) {
-        fprintf(stderr, "action upcall cookie has unexpected size %"PRIuSIZE,
-                userdata_len);
-        return EINVAL;
-    }
-    memcpy(&cookie, nl_attr_get(userdata), sizeof cookie);
-
-    if (cookie.type != USER_ACTION_COOKIE_FLOW_SAMPLE) {
-        fprintf(stderr, "action upcall cookie has unexpected type %"PRIu16,
-                cookie.type);
+    err = sample_decode_action_cookie(nl_attr_get(userdata),
+                                      userdata_len, &flow_sample);
+    if (err) {
+        fprintf(stderr, "action upcall cookie could not be decoded: %d", err);
         return EINVAL;
     }
 
-    sample->collector_set_id = cookie.flow_sample.collector_set_id;
-    sample->obs_domain_id = cookie.flow_sample.obs_domain_id;
-    sample->obs_point_id = cookie.flow_sample.obs_point_id;
+    sample->collector_set_id = flow_sample.collector_set_id;
+    sample->obs_domain_id = flow_sample.obs_domain_id;
+    sample->obs_point_id = flow_sample.obs_point_id;
 
     return 0;
 }
