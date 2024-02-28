@@ -4721,11 +4721,14 @@ dpif_netlink_vport_from_ofpbuf(struct dpif_netlink_vport *vport,
                 vport->upcall_success = nl_attr_get_u64(nla);
             } else if (nl_attr_type(nla) == OVS_VPORT_UPCALL_ATTR_FAIL) {
                 vport->upcall_fail = nl_attr_get_u64(nla);
+            } else if (nl_attr_type(nla) == OVS_VPORT_UPCALL_ATTR_MCAST) {
+                vport->upcall_mcast = nl_attr_get_u64(nla);
             }
         }
     } else {
         vport->upcall_success = UINT64_MAX;
         vport->upcall_fail = UINT64_MAX;
+        vport->upcall_mcast = UINT64_MAX;
     }
     if (a[OVS_VPORT_ATTR_OPTIONS]) {
         vport->options = nl_attr_get(a[OVS_VPORT_ATTR_OPTIONS]);

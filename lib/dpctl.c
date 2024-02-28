@@ -765,6 +765,7 @@ show_dpif(struct dpif *dpif, struct dpctl_params *dpctl_p)
 
                 print_stat(dpctl_p, "    UPCALL packets:", s.upcall_packets);
                 print_stat(dpctl_p, " errors:", s.upcall_errors);
+                print_stat(dpctl_p, " mcast:", s.upcall_mcast);
                 dpctl_print(dpctl_p, "\n");
             } else {
                 dpctl_print(dpctl_p, ", could not retrieve stats (%s)",

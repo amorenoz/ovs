@@ -317,6 +317,7 @@ enum ovs_vport_attr {
 enum ovs_vport_upcall_attr {
 	OVS_VPORT_UPCALL_ATTR_SUCCESS,
 	OVS_VPORT_UPCALL_ATTR_FAIL,
+	OVS_VPORT_UPCALL_ATTR_MCAST,
 	__OVS_VPORT_UPCALL_ATTR_MAX,
 };
 

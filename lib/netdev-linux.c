@@ -2236,6 +2236,7 @@ netdev_stats_from_ovs_vport_stats(struct netdev_stats *dst,
     dst->tx_window_errors = 0;
     dst->upcall_packets = vport->upcall_success;
     dst->upcall_errors = vport->upcall_fail;
+    dst->upcall_mcast = vport->upcall_mcast;
 }
 
 static int

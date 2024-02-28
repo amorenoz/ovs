@@ -91,6 +91,7 @@ struct netdev_stats {
     /* Datapath upcall statistics. */
     uint64_t upcall_packets; /* Rx packets forwarded to userspace. */
     uint64_t upcall_errors;  /* Rx packets failed forwarding to userspace. */
+    uint64_t upcall_mcast; /* Rx packets multicasted to external collectors. */
 };
 
 /* Structure representation of custom statistics counter */
