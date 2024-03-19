@@ -31,6 +31,7 @@
 #include "openvswitch/types.h"
 #include "openvswitch/uuid.h"
 
+static int psample_family = 0;
 
 struct sample {
     struct dp_packet packet;
@@ -71,10 +72,57 @@ parse_psample(struct ofpbuf *buf, struct sample *sample) {
     return 0;
 }
 
+static int _psample_set_filter(struct nl_sock *sock, uint32_t group_id,
+                               bool valid)
+{
+        uint64_t stub[512 / 8];
+        struct ofpbuf buf;
+        int error;
+
+        ofpbuf_use_stub(&buf, stub, sizeof stub);
+
+        nl_msg_put_genlmsghdr(&buf, 0, psample_family, NLM_F_REQUEST,
+                              PSAMPLE_CMD_SAMPLE_FILTER_SET, 1);
+        if (valid) {
+            nl_msg_put_u32(&buf, PSAMPLE_ATTR_SAMPLE_GROUP, group_id);
+        }
+
+        error = nl_sock_send(sock, &buf, false);
+        if (error)
+            return error;
+
+        ofpbuf_clear(&buf);
+        error = nl_sock_recv(sock, &buf, NULL, false);
+        if (!error) {
+            struct nlmsghdr *h = ofpbuf_at(&buf, 0, NLMSG_HDRLEN);
+            if (h->nlmsg_type == NLMSG_ERROR) {
+                const struct nlmsgerr *e;
+                e = ofpbuf_at(&buf, NLMSG_HDRLEN,
+                              NLMSG_ALIGN(sizeof(struct nlmsgerr)));
+                if (!e)
+                    return EINVAL;
+                if (e && e->error < 0)
+                    return -e->error;
+            }
+        } else if (error != EAGAIN) {
+            return error;
+        }
+        return 0;
+}
+
+static inline int psample_clear_filter(struct nl_sock *sock)
+{
+    return _psample_set_filter(sock, 0, false);
+}
+
+static inline int psample_set_filter(struct nl_sock *sock, uint32_t group_id)
+{
+    return _psample_set_filter(sock, group_id, true);
+}
 
 static void usage(void)
 {
-    fprintf(stdout, "ovs-sample");
+    fprintf(stdout, "ovs-sample [group_id]");
 }
 
 int
@@ -82,12 +130,16 @@ main(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
 {
     unsigned int psample_packet_mcgroup;
     struct nl_sock *sock;
-    int psample_family;
+    uint32_t group_id;
+    bool has_filter;
     int error;
 
-    if (argc > 1) {
+    if (argc > 2) {
         usage();
         return EINVAL;
+    } else if (argc == 2) {
+        group_id = atoi(argv[1]);
+        has_filter = true;
     }
 
     error = nl_lookup_genl_family(PSAMPLE_GENL_NAME , &psample_family);
@@ -105,6 +157,12 @@ main(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
         ovs_fatal(0, "cannot create netlink socket: %i ", error);
 
     nl_sock_listen_all_nsid(sock, true);
+
+    if (has_filter) {
+        error = psample_set_filter(sock, group_id);
+        if (error)
+            ovs_fatal(0, "failed to filter: %i ", error);
+    }
 
     error = nl_sock_join_mcgroup(sock, psample_packet_mcgroup);
     if (error) {
