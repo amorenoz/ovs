@@ -25,6 +25,7 @@
 #include "coverage.h"
 #include "cfm.h"
 #include "ct-dpif.h"
+#include "dpif-netdev.h"
 #include "fail-open.h"
 #include "guarded-list.h"
 #include "hmapx.h"
@@ -873,6 +874,12 @@ ovs_lb_output_action_supported(struct ofproto_dpif *ofproto)
     return ofproto->backer->rt_support.lb_output_action;
 }
 
+bool
+ovs_psample_supported(struct ofproto_dpif *ofproto)
+{
+    return ofproto->backer->rt_support.psample;
+}
+
 /* Tests whether 'backer''s datapath supports recirculation.  Only newer
  * datapaths support OVS_KEY_ATTR_RECIRC_ID in keys.  We need to disable some
  * features on older datapaths that don't support this feature.
@@ -1440,6 +1447,14 @@ dpif_supports_ct_zero_snat(struct dpif_backer *backer)
     return supported;
 }
 
+static bool check_psample(struct dpif_backer *backer);
+
+static bool
+dpif_supports_psample(struct dpif_backer *backer)
+{
+    return !dpif_is_netdev(backer->dpif) && check_psample(backer);
+}
+
 /* Tests whether 'backer''s datapath supports the
  * OVS_ACTION_ATTR_CHECK_PKT_LEN action. */
 static bool
@@ -1609,6 +1624,55 @@ check_add_mpls(struct dpif_backer *backer)
     return supported;
 }
 
+/* Tests whether 'backer''s datapath supports the OVS_SAMPLE_ATTR_PSAMPLE
+ * attribute. */
+static bool
+check_psample(struct dpif_backer *backer)
+{
+    struct odputil_keybuf keybuf;
+    struct ovs_psample *psample;
+    struct ofpbuf psample_act;
+    struct ofpbuf actions;
+    struct ofpbuf key;
+    struct flow flow;
+    bool supported;
+    size_t offset;
+    struct uuid uuid;
+
+    struct odp_flow_key_parms odp_parms = {
+        .flow = &flow,
+        .probe = true,
+    };
+
+    memset(&flow, 0, sizeof flow);
+    ofpbuf_use_stack(&key, &keybuf, sizeof keybuf);
+    odp_flow_key_from_flow(&odp_parms, &key);
+    ofpbuf_init(&actions, 64);
+    ofpbuf_init(&psample_act, sizeof(*psample) + 16);
+
+    psample = ofpbuf_put_zeros(&psample_act, sizeof(*psample));
+    psample->group_id = 10;
+    psample->user_cookie_len = 16;
+    uuid_generate(&uuid);
+    ofpbuf_put(&psample_act, &uuid, sizeof(uuid));
+
+    offset = nl_msg_start_nested(&actions, OVS_ACTION_ATTR_SAMPLE);
+    nl_msg_put_u32(&actions, OVS_SAMPLE_ATTR_PROBABILITY, 1);
+    nl_msg_put_unspec(&actions, OVS_SAMPLE_ATTR_PSAMPLE, psample_act.data,
+                      psample_act.size);
+    nl_msg_end_nested(&actions, offset);
+
+    supported = dpif_probe_feature(backer->dpif, "psample", &key,
+                                   &actions, NULL);
+    ofpbuf_uninit(&actions);
+    ofpbuf_uninit(&psample_act);
+    VLOG_INFO("%s: Datapath %s psample",
+              dpif_name(backer->dpif),
+              supported ? "supports" : "does not support");
+    return supported;
+}
+
+
 #define CHECK_FEATURE__(NAME, SUPPORT, FIELD, VALUE, ETHTYPE)               \
 static bool                                                                 \
 check_##NAME(struct dpif_backer *backer)                                    \
@@ -1698,6 +1762,7 @@ check_support(struct dpif_backer *backer)
         dpif_supports_lb_output_action(backer->dpif);
     backer->rt_support.ct_zero_snat = dpif_supports_ct_zero_snat(backer);
     backer->rt_support.add_mpls = check_add_mpls(backer);
+    backer->rt_support.psample = dpif_supports_psample(backer);
 
     /* Flow fields. */
     backer->rt_support.odp.ct_state = check_ct_state(backer);
