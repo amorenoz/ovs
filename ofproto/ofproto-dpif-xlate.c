@@ -3371,6 +3371,7 @@ static size_t
 compose_sample_action(struct xlate_ctx *ctx,
                       const uint32_t probability,
                       const struct user_action_cookie *cookie,
+                      const struct ovs_psample *psample,
                       const odp_port_t tunnel_out_port,
                       bool include_actions)
 {
@@ -3379,6 +3380,10 @@ compose_sample_action(struct xlate_ctx *ctx,
         return 0;
     }
 
+    /* Either user_action_cookie (for a nested userspace action) or psample
+     * attribute must be provided */
+    ovs_assert(cookie || psample);
+
     /* If the slow path meter is configured by the controller,
      * insert a meter action before the user space action.  */
     struct ofproto *ofproto = &ctx->xin->ofproto->up;
@@ -3386,15 +3391,27 @@ compose_sample_action(struct xlate_ctx *ctx,
 
     /* When meter action is not required, avoid generate sample action
      * for 100% sampling rate.  */
-    bool is_sample = probability < UINT32_MAX || meter_id != UINT32_MAX;
+    bool is_sample = (probability < UINT32_MAX || meter_id != UINT32_MAX ||
+        psample);
     size_t sample_offset = 0, actions_offset = 0;
     if (is_sample) {
         sample_offset = nl_msg_start_nested(ctx->odp_actions,
                                             OVS_ACTION_ATTR_SAMPLE);
         nl_msg_put_u32(ctx->odp_actions, OVS_SAMPLE_ATTR_PROBABILITY,
                        probability);
-        actions_offset = nl_msg_start_nested(ctx->odp_actions,
-                                             OVS_SAMPLE_ATTR_ACTIONS);
+
+        if (psample) {
+            nl_msg_put_unspec(ctx->odp_actions, OVS_SAMPLE_ATTR_PSAMPLE,
+                              psample,
+                              sizeof(*psample) + psample->user_cookie_len);
+        }
+        if (cookie) {
+            actions_offset = nl_msg_start_nested(ctx->odp_actions,
+                                                 OVS_SAMPLE_ATTR_ACTIONS);
+        } else {
+            nl_msg_end_nested(ctx->odp_actions, sample_offset);
+            return 0;
+        }
     }
 
     if (meter_id != UINT32_MAX) {
@@ -3409,7 +3426,7 @@ compose_sample_action(struct xlate_ctx *ctx,
                                        tunnel_out_port, include_actions,
                                        ctx->odp_actions, &cookie_offset);
     ovs_assert(res == 0);
-    if (is_sample) {
+    if (actions_offset) {
         nl_msg_end_nested(ctx->odp_actions, actions_offset);
         nl_msg_end_nested(ctx->odp_actions, sample_offset);
     }
@@ -3440,7 +3457,7 @@ compose_sflow_action(struct xlate_ctx *ctx)
     cookie.ofproto_uuid = ctx->xbridge->ofproto->uuid;
 
     return compose_sample_action(ctx, dpif_sflow_get_probability(sflow),
-                                 &cookie, ODPP_NONE, true);
+                                 &cookie, NULL, ODPP_NONE, true);
 }
 
 /* If flow IPFIX is enabled, make sure IPFIX flow sample action
@@ -3490,7 +3507,7 @@ compose_ipfix_action(struct xlate_ctx *ctx, odp_port_t output_odp_port)
 
     compose_sample_action(ctx,
                           dpif_ipfix_get_bridge_exporter_probability(ipfix),
-                          &cookie, tunnel_out_port, false);
+                          &cookie, NULL, tunnel_out_port, false);
 }
 
 /* Fix "sample" action according to data collected while composing ODP actions,
@@ -5926,7 +5943,8 @@ xlate_sample_action(struct xlate_ctx *ctx,
     cookie.flow_sample.output_odp_port = output_odp_port;
     cookie.flow_sample.direction = os->direction;
 
-    compose_sample_action(ctx, probability, &cookie, tunnel_out_port, false);
+    compose_sample_action(ctx, probability, &cookie, NULL, tunnel_out_port,
+                          false);
 }
 
 /* Determine if an datapath action translated from the openflow action

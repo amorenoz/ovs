@@ -716,6 +716,7 @@ odp_execute_sample(void *dp, struct dp_packet *packet, bool steal,
             subactions = a;
             break;
 
+        case OVS_SAMPLE_ATTR_PSAMPLE:   /* Ignored in userspace datapath. */
         case OVS_SAMPLE_ATTR_UNSPEC:
         case __OVS_SAMPLE_ATTR_MAX:
         default:
