@@ -12,6 +12,10 @@ Post-v3.3.0
      * Link status changes are now handled via interrupt mode if the DPDK
        driver supports it.  It is possible to revert to polling mode by setting
        per interface 'options:dpdk-lsc-interrupt' to 'false'.
+   - Local sampling is introduced. It reuses the OpenFlow sample action and
+     allows samples to be emitted locally (instead of via IPFIX) in a
+     datapath-specific manner. The Linux kernel datapath is the first to
+     support this feature by using the new datapath "psample" action.
 
 
 v3.3.0 - 16 Feb 2024
