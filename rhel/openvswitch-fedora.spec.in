@@ -471,6 +471,7 @@ fi
 %{_bindir}/ovs-dpctl
 %{_bindir}/ovs-dpctl-top
 %{_bindir}/ovs-ofctl
+%{_bindir}/ovs-sample
 %{_bindir}/ovs-vsctl
 %{_bindir}/ovsdb-client
 %{_bindir}/ovsdb-tool
