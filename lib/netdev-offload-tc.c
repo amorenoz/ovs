@@ -1038,6 +1038,10 @@ parse_tc_flower_to_actions__(struct tc_flower *flower, struct ofpbuf *buf,
             nl_msg_end_nested(buf, offset);
         }
         break;
+        case TC_ACT_COOKIE:
+            /* The cookie action is only used to store the ufid, it does not
+             * map to any odp action. */
+            break;
         }
 
         if (action->jump_action && action->type != TC_ACT_POLICE_MTU) {
@@ -1322,8 +1326,8 @@ netdev_tc_flow_dump_next(struct netdev_flow_dump *dump,
             continue;
         }
 
-        if (flower.act_cookie.len >= sizeof *ufid) {
-            *ufid = get_32aligned_u128(flower.act_cookie.data);
+        if (flower.flow_cookie.len >= sizeof *ufid) {
+            *ufid = get_32aligned_u128(flower.flow_cookie.data);
         } else if (!find_ufid(netdev, &id, ufid)) {
             continue;
         }
@@ -2062,11 +2066,17 @@ netdev_tc_parse_nl_actions(struct netdev *netdev, struct tc_flower *flower,
                            struct tc_action **need_jump_update)
 {
     static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(5, 20);
+    struct tc_action *action;
     const struct nlattr *nla;
     size_t left;
 
+    if (flower->action_count == 0) {
+        action = &flower->actions[0];
+        action->type = TC_ACT_COOKIE;
+        flower->action_count++;
+    }
+
     NL_ATTR_FOR_EACH (nla, left, actions, actions_len) {
-        struct tc_action *action;
         int err;
 
         if (flower->action_count >= TCA_ACT_MAX_NUM) {
@@ -2537,8 +2547,8 @@ netdev_tc_flow_put(struct netdev *netdev, struct match *match,
         return ENOSPC;
     }
 
-    flower.act_cookie.data = ufid;
-    flower.act_cookie.len = sizeof *ufid;
+    flower.flow_cookie.data = ufid;
+    flower.flow_cookie.len = sizeof *ufid;
 
     block_id = get_block_id_from_netdev(netdev);
     id = tc_make_tcf_id_chain(ifindex, block_id, chain, prio, hook);

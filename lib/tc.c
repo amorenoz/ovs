@@ -1463,7 +1463,8 @@ nl_parse_tcf(const struct tcf_t *tm, struct tc_flower *flower)
 }
 
 static int
-nl_parse_act_gact(struct nlattr *options, struct tc_flower *flower)
+nl_parse_act_gact(struct nlattr *options, const struct nlattr *cookie,
+                  struct tc_flower *flower)
 {
     struct nlattr *gact_attrs[ARRAY_SIZE(gact_policy)];
     const struct tc_gact *p;
@@ -1485,6 +1486,12 @@ nl_parse_act_gact(struct nlattr *options, struct tc_flower *flower)
         action->chain = p->action & TC_ACT_EXT_VAL_MASK;
         action->type = TC_ACT_GOTO;
         nl_parse_action_pc(p->action, action);
+    } else if (p->action == TC_ACT_PIPE && cookie &&
+               nl_attr_get_size(cookie)) {
+        action = &flower->actions[flower->action_count++];
+        action->type = TC_ACT_COOKIE;
+        flower->flow_cookie.data = nl_attr_get(cookie);
+        flower->flow_cookie.len = nl_attr_get_size(cookie);
     } else if (p->action != TC_ACT_SHOT) {
         VLOG_ERR_RL(&error_rl, "unknown gact action: %d", p->action);
         return EINVAL;
@@ -2058,7 +2065,7 @@ nl_parse_single_action(struct nlattr *action, struct tc_flower *flower,
     if (terse) {
         /* Terse dump doesn't provide act options attribute. */
     } else if (!strcmp(act_kind, "gact")) {
-        err = nl_parse_act_gact(act_options, flower);
+        err = nl_parse_act_gact(act_options, act_cookie, flower);
     } else if (!strcmp(act_kind, "mirred")) {
         err = nl_parse_act_mirred(act_options, flower);
     } else if (!strcmp(act_kind, "vlan")) {
@@ -2085,11 +2092,6 @@ nl_parse_single_action(struct nlattr *action, struct tc_flower *flower,
 
     if (err) {
         return err;
-    }
-
-    if (act_cookie) {
-        flower->act_cookie.data = nl_attr_get(act_cookie);
-        flower->act_cookie.len = nl_attr_get_size(act_cookie);
     }
 
     return nl_parse_action_stats(action_attrs[TCA_ACT_STATS],
@@ -2745,22 +2747,24 @@ nl_msg_put_act_tunnel_key_set(struct ofpbuf *request,
 }
 
 static void
-nl_msg_put_act_gact(struct ofpbuf *request, uint32_t chain)
+nl_msg_put_act_gact(struct ofpbuf *request, uint32_t action)
 {
     size_t offset;
 
     nl_msg_put_string(request, TCA_ACT_KIND, "gact");
     offset = nl_msg_start_nested(request, TCA_ACT_OPTIONS);
     {
-        struct tc_gact p = { .action = TC_ACT_SHOT };
-
-        if (chain) {
-            p.action = TC_ACT_GOTO_CHAIN | chain;
-        }
+        struct tc_gact p = { .action = action };
 
         nl_msg_put_unspec(request, TCA_GACT_PARMS, &p, sizeof p);
     }
     nl_msg_end_nested(request, offset);
+}
+
+static void
+nl_msg_put_act_gact_goto(struct ofpbuf *request, uint32_t chain)
+{
+    nl_msg_put_act_gact(request, TC_ACT_GOTO_CHAIN | chain);
 }
 
 static void
@@ -3220,6 +3224,7 @@ get_action_index_for_tc_actions(struct tc_flower *flower, uint16_t act_index,
         case TC_ACT_MPLS_SET:
         case TC_ACT_GOTO:
         case TC_ACT_CT:
+        case TC_ACT_COOKIE:
             /* Increase act_index by one if we are sure this type of action
              * will only add one tc action in the kernel. */
             act_index++;
@@ -3458,7 +3463,6 @@ nl_msg_put_flower_acts(struct ofpbuf *request, struct tc_flower *flower)
                                               TCA_EGRESS_MIRROR);
                     }
                 }
-                nl_msg_put_act_cookie(request, &flower->act_cookie);
                 nl_msg_put_act_flags(request);
                 nl_msg_end_nested(request, act_offset);
             }
@@ -3475,15 +3479,13 @@ nl_msg_put_flower_acts(struct ofpbuf *request, struct tc_flower *flower)
                 }
 
                 act_offset = nl_msg_start_nested(request, act_index++);
-                nl_msg_put_act_gact(request, action->chain);
-                nl_msg_put_act_cookie(request, &flower->act_cookie);
+                nl_msg_put_act_gact_goto(request, action->chain);
                 nl_msg_end_nested(request, act_offset);
             }
             break;
             case TC_ACT_CT: {
                 act_offset = nl_msg_start_nested(request, act_index++);
                 nl_msg_put_act_ct(request, action, action_pc);
-                nl_msg_put_act_cookie(request, &flower->act_cookie);
                 nl_msg_end_nested(request, act_offset);
             }
             break;
@@ -3501,11 +3503,18 @@ nl_msg_put_flower_acts(struct ofpbuf *request, struct tc_flower *flower)
                                               released)) {
                     return -EOPNOTSUPP;
                 }
-                nl_msg_put_act_cookie(request, &flower->act_cookie);
                 nl_msg_put_act_flags(request);
                 nl_msg_end_nested(request, act_offset);
             }
             break;
+            case TC_ACT_COOKIE: {
+                act_offset = nl_msg_start_nested(request, act_index++);
+                nl_msg_put_act_gact(request, TC_ACT_PIPE);
+                nl_msg_put_act_flags(request);
+                nl_msg_put_act_cookie(request, &flower->flow_cookie);
+                nl_msg_end_nested(request, act_offset);
+            break;
+            }
             }
 
             prev_action_pc = action_pc;
@@ -3514,8 +3523,7 @@ nl_msg_put_flower_acts(struct ofpbuf *request, struct tc_flower *flower)
 
     if (!flower->action_count) {
         act_offset = nl_msg_start_nested(request, act_index++);
-        nl_msg_put_act_gact(request, 0);
-        nl_msg_put_act_cookie(request, &flower->act_cookie);
+        nl_msg_put_act_gact(request, TC_ACT_SHOT);
         nl_msg_put_act_flags(request);
         nl_msg_end_nested(request, act_offset);
     }

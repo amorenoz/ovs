@@ -201,6 +201,7 @@ enum tc_action_type {
     TC_ACT_CT,
     TC_ACT_POLICE,
     TC_ACT_POLICE_MTU,
+    TC_ACT_COOKIE,
 };
 
 enum nat_type {
@@ -386,7 +387,7 @@ struct tc_flower {
 
     bool tunnel;
 
-    struct tc_cookie act_cookie;
+    struct tc_cookie flow_cookie; /* Cookie to help identify the flow. */
 
     bool needs_full_ip_proto_mask;
 
