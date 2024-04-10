@@ -1042,6 +1042,30 @@ parse_tc_flower_to_actions__(struct tc_flower *flower, struct ofpbuf *buf,
             /* The cookie action is only used to store the ufid, it does not
              * map to any odp action. */
             break;
+        case TC_ACT_SAMPLE: {
+            struct ovs_psample *psample;
+            struct ofpbuf psample_buf;
+            size_t offset;
+
+            ofpbuf_init(&psample_buf, sizeof(*psample) +
+                        OVS_PSAMPLE_COOKIE_MAX_SIZE);
+
+            psample = ofpbuf_put_zeros(&psample_buf, sizeof(*psample));
+            psample->group_id = action->sample.group_id;
+            psample->user_cookie_len = action->sample.cookie_len;
+            memcpy(&psample->user_cookie[0], &action->sample.cookie[0],
+                   action->sample.cookie_len);
+
+            offset = nl_msg_start_nested(buf, OVS_ACTION_ATTR_SAMPLE);
+            nl_msg_put_u32(buf, OVS_SAMPLE_ATTR_PROBABILITY,
+                           UINT32_MAX / action->sample.rate);
+            nl_msg_put_unspec(buf, OVS_SAMPLE_ATTR_PSAMPLE,
+                              psample_buf.data, psample_buf.size);
+
+            ofpbuf_uninit(&psample_buf);
+            nl_msg_end_nested(buf, offset);
+        }
+        break;
         }
 
         if (action->jump_action && action->type != TC_ACT_POLICE_MTU) {
@@ -2059,6 +2083,46 @@ parse_check_pkt_len_action(struct netdev *netdev, struct tc_flower *flower,
 }
 
 static int
+parse_sample_action(struct tc_flower *flower, const struct nlattr *nl_act,
+                    struct tc_action *action)
+{
+    /* Only offloadable if it's psample only. Use the policy to enforce it by
+     * making psample arguments mandatory and omitting actions. */
+    static const struct nl_policy ovs_sample_policy[] = {
+        [OVS_SAMPLE_ATTR_PROBABILITY] = { .type = NL_A_U32 },
+        [OVS_SAMPLE_ATTR_PSAMPLE] = { .type = NL_A_UNSPEC, }
+    };
+    struct nlattr *a[ARRAY_SIZE(ovs_sample_policy)];
+    const struct ovs_psample *psample;
+    uint32_t probability;
+
+    if (!nl_parse_nested(nl_act, ovs_sample_policy, a, ARRAY_SIZE(a))) {
+        return EOPNOTSUPP;
+    }
+
+    psample = nl_attr_get(a[OVS_SAMPLE_ATTR_PSAMPLE]);
+
+    action->type = TC_ACT_SAMPLE;
+    /* OVS probability and TC sampling rate have different semantics.
+     * The former represents the number of sampled packets out of UINT32_MAX
+     * while the other represents the ratio between observed and sampled
+     * packets. */
+    probability = nl_attr_get_u32(a[OVS_SAMPLE_ATTR_PROBABILITY]);
+    if (!probability) {
+        return EINVAL;
+    }
+    action->sample.rate = UINT32_MAX / probability;
+
+    action->sample.group_id = psample->group_id;
+    action->sample.cookie_len = psample->user_cookie_len;
+    memcpy(&action->sample.cookie[0], &psample->user_cookie[0],
+           MIN(psample->user_cookie_len, TC_COOKIE_MAX_SIZE));
+
+    flower->action_count++;
+    return 0;
+}
+
+static int
 netdev_tc_parse_nl_actions(struct netdev *netdev, struct tc_flower *flower,
                            struct offload_info *info,
                            const struct nlattr *actions, size_t actions_len,
@@ -2202,6 +2266,11 @@ netdev_tc_parse_nl_actions(struct netdev *netdev, struct tc_flower *flower,
                                              && !more_actions,
                                              need_jump_update,
                                              recirc_act);
+            if (err) {
+                return err;
+            }
+        } else if (nl_attr_type(nla) == OVS_ACTION_ATTR_SAMPLE) {
+            err = parse_sample_action(flower, nla, action);
             if (err) {
                 return err;
             }
