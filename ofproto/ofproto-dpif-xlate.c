@@ -6010,6 +6010,19 @@ xlate_sample_action(struct xlate_ctx *ctx,
                    sizeof(os->obs_point_id));
 
         compose_args.emit = &emit_sample;
+
+        if (ctx->xin->resubmit_stats) {
+            dpif_lsample_credit_stats(lsample,
+                                      os->collector_set_id,
+                                      ctx->xin->resubmit_stats);
+        }
+        if (ctx->xin->xcache) {
+            struct xc_entry *entry;
+
+            entry = xlate_cache_add_entry(ctx->xin->xcache, XC_LSAMPLE);
+            entry->lsample.lsample = dpif_lsample_ref(lsample);
+            entry->lsample.collector_set_id = os->collector_set_id;
+        }
     }
 
     if (!compose_args.upcall && !compose_args.emit) {
