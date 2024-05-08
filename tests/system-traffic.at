@@ -8977,3 +8977,54 @@ OVS_WAIT_UNTIL([cat p2.pcap | grep -E "0x0050: *0000 *0000 *5002 *2000 *b85e *00
 
 OVS_TRAFFIC_VSWITCHD_STOP
 AT_CLEANUP
+
+AT_SETUP([psample - slow])
+OVS_TRAFFIC_VSWITCHD_START()
+OVS_CHECK_PSAMPLE()
+
+ADD_NAMESPACES(at_ns0, at_ns1)
+ADD_VETH(p0, at_ns0, br0, "10.1.1.1/24")
+ADD_VETH(p1, at_ns1, br0, "10.1.1.2/24")
+
+AT_CHECK([ovs-vsctl -- --id=@br0 get Bridge br0 \
+                    -- --id=@ipfix create IPFIX targets=\"127.0.0.1:4739\" \
+                    -- --id=@cs create Flow_Sample_Collector_Set id=1 bridge=@br0 ipfix=@ipfix, psample_group=10],
+         [0], [ignore])
+
+AT_DATA([flows.txt], [dnl
+arp action=NORMAL
+in_port=ovs-p0,ip actions=sample(probability=65535,collector_set_id=1,obs_domain_id=1431655765,obs_point_id=1717986918),output(port=ovs-p1,max_len=100)
+in_port=ovs-p1,ip actions=sample(probability=65535,collector_set_id=1,obs_domain_id=2290649224,obs_point_id=2576980377),output(port=ovs-p0,max_len=100)
+])
+
+AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
+
+# Disable trunc feature to force traffic to go through slow path.
+AT_CHECK([ovs-appctl dpif/set-dp-features br0 trunc false])
+
+AT_CHECK([ovs-appctl ofproto/trace br0 'in_port=ovs-p0,dl_src=50:54:00:00:00:05,dl_dst=50:54:00:00:00:07,dl_type=0x0800,nw_src=10.1.1.1,nw_dst=10.1.1.12'], [0], [stdout])
+AT_CHECK([tail -3 stdout], [0], [dnl
+Datapath actions: sample(sample=100.0%,group_id=10,cookie=5555555566666666,actions(userspace(pid=4294967295,flow_sample(probability=65535,collector_set_id=1,obs_domain_id=1431655765,obs_point_id=1717986918,output_port=4294967295)))),trunc(100),3
+This flow is handled by the userspace slow path because it:
+  - Uses action(s) not supported by datapath.
+])
+
+OVS_DAEMONIZE([ovs-psample > psample.out], [psample.pid])
+on_exit 'kill `cat psample.pid`'
+sleep 1
+
+NS_CHECK_EXEC([at_ns0], [ping -q -c 1 10.1.1.2 | FORMAT_PING], [0], [dnl
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+])
+
+AT_CHECK([grep -E "group_id=0xa obs_domain=0x55555555,obs_point=0x66666666 .*icmp.*nw_src=10.1.1.1,nw_dst=10.1.1.2" psample.out >/dev/null])
+AT_CHECK([grep -E "group_id=0xa obs_domain=0x88888888,obs_point=0x99999999 .*icmp.*nw_src=10.1.1.2,nw_dst=10.1.1.1" psample.out >/dev/null])
+
+AT_CHECK([ovs-ofctl dump-ipfix-flow br0 | sed 's/tx pkts=[[0-9]]*/tx pkts=24/' | sed 's/tx errs=[[0-9]]*/tx errs=0/'], [0], [dnl
+NXST_IPFIX_FLOW reply (xid=0x2): 1 ids
+  id   1: flows=2, current flows=0, sampled pkts=2, ipv4 ok=2, ipv6 ok=0, tx pkts=24
+          pkts errs=0, ipv4 errs=0, ipv6 errs=0, tx errs=0
+])
+
+OVS_TRAFFIC_VSWITCHD_STOP(["/sending to collector failed/d"])
+AT_CLEANUP

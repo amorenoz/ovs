@@ -823,11 +823,22 @@ requires_datapath_assistance(const struct nlattr *a)
     case OVS_ACTION_ATTR_METER:
         return true;
 
+    case OVS_ACTION_ATTR_SAMPLE:
+    {
+        const struct nlattr *nested;
+        unsigned int left;
+        NL_NESTED_FOR_EACH (nested, left, a) {
+            if (nl_attr_type(nested) == OVS_SAMPLE_ATTR_PSAMPLE_GROUP) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     case OVS_ACTION_ATTR_SET:
     case OVS_ACTION_ATTR_SET_MASKED:
     case OVS_ACTION_ATTR_PUSH_VLAN:
     case OVS_ACTION_ATTR_POP_VLAN:
-    case OVS_ACTION_ATTR_SAMPLE:
     case OVS_ACTION_ATTR_HASH:
     case OVS_ACTION_ATTR_PUSH_MPLS:
     case OVS_ACTION_ATTR_POP_MPLS:
