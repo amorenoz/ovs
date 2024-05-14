@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <linux/filter.h>
 #include <linux/psample.h>
 
 #include "command-line.h"
@@ -29,6 +30,7 @@
 #include "util.h"
 #include "netlink.h"
 #include "netlink-socket.h"
+#include "openvswitch/dynamic-string.h"
 #include "openvswitch/ofp-actions.h"
 #include "openvswitch/ofp-print.h"
 #include "openvswitch/types.h"
@@ -233,50 +235,104 @@ parse_psample(struct ofpbuf *buf, struct sample *sample) {
     return 0;
 }
 
-static int _psample_set_filter(struct nl_sock *sock, uint32_t group,
-                               bool valid)
+static struct sock_filter psample_group_filter[] = {
+    /* Load sizeof(struct nlmsghdr) + sizeof(struct genlmsghdr) into A. */
+    BPF_STMT(BPF_LD + BPF_IMM, sizeof(struct nlmsghdr) +
+                               sizeof(struct genlmsghdr)),
+
+    /* Load PSAMPLE_ATTR_SAMPLE_GROUP into X.*/
+    BPF_STMT(BPF_LDX + BPF_IMM, PSAMPLE_ATTR_SAMPLE_GROUP),
+
+    /* Access ancillary data at offset SKF_AD_NLATTR.
+     * This BPF extension is equivalent to calling:
+     *
+     *   nla = nla_find((struct nlattr *) &skb->data[A], skb->len - A, X);
+     *   if (nla) {
+     *        return (void *) nla - (void *) skb->data;
+     *   }
+     *   return 0;
+     *
+     *  The result is stored in A.
+     */
+    BPF_STMT(BPF_LD + BPF_ABS, SKF_AD_OFF + SKF_AD_NLATTR),
+
+    /* Check if the value in A is zero (which means the
+     * PSAMPLE_ATTR_SAMPLE_GROUP was not found), jump 4 instructions ahead,
+     * returning "pass".
+     */
+    BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0, 4, 0),
+
+    /* Copy A into X. */
+    BPF_STMT(BPF_MISC + BPF_TAX, 0),
+
+    /* Load the word in skb data at offset X + sizeof(struct nlattr) into A.
+     * (skb->data + X + sizeof(nlattr)) points to the group number.
+     */
+    BPF_STMT(BPF_LD + BPF_W + BPF_IND, sizeof(struct nlattr)),
+
+    /* Perform the actual group comparison.
+     * The inmediate value of this instruction must be replaced with the
+     * actual group_id.
+     */
+#define FILTER_GROUP_INS 6
+    BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0x38000000, 1, 0),	 /* pass */
+
+    /* Return zero, i.e: drop. */
+    BPF_STMT(BPF_RET + BPF_K, (u_int) 0),
+
+    /* Return -1, i.e: pass. */
+    BPF_STMT(BPF_RET + BPF_K, (u_int) -1),
+};
+
+/* Puts the string representation of the filter into ds.
+ * The format is similar to what tcpdump "-ddd" prints only newlines are
+ * replaced with ",". This formats matches the output of linux tool bpf_asm
+ * and is accepted by bpf_dbg
+ */
+static void ds_put_filter(struct ds *ds, const struct sock_fprog *fprog) {
+    struct sock_filter *ins;
+    int i;
+
+    ds_put_format(ds, "%u,", fprog->len);
+    for (i = 0; i < fprog->len; i++) {
+        ins = &fprog->filter[i];
+        ds_put_format(ds, "%u %u %u %u,", ins->code, ins->jt, ins->jf, ins->k);
+    }
+}
+
+static int _psample_set_filter(struct nl_sock *sock, uint32_t group)
 {
-        uint64_t stub[512 / 8];
-        struct ofpbuf buf;
-        int error;
+    struct sock_fprog fprog = {};
+    int error;
 
-        ofpbuf_use_stub(&buf, stub, sizeof stub);
+    fprog.len = ARRAY_SIZE(psample_group_filter);
+    fprog.filter = xmalloc(sizeof(psample_group_filter));
+    memcpy(fprog.filter, psample_group_filter,
+           sizeof(psample_group_filter));
 
-        nl_msg_put_genlmsghdr(&buf, 0, psample_family, NLM_F_REQUEST,
-                              PSAMPLE_CMD_SAMPLE_FILTER_SET, 1);
-        if (valid) {
-            nl_msg_put_u32(&buf, PSAMPLE_ATTR_SAMPLE_GROUP, group);
-        }
+    /* Replace the group number */
+    fprog.filter[FILTER_GROUP_INS].k = ntohl(group);
 
-        error = nl_sock_send(sock, &buf, false);
-        if (error) {
-            return error;
-        }
+    error = setsockopt(nl_sock_fd(sock), SOL_SOCKET, SO_ATTACH_FILTER, &fprog,
+                     sizeof(fprog));
+    if (error) {
+        struct ds ds = DS_EMPTY_INITIALIZER;
 
-        ofpbuf_clear(&buf);
-        error = nl_sock_recv(sock, &buf, NULL, false);
-        if (!error) {
-            struct nlmsghdr *h = ofpbuf_at(&buf, 0, NLMSG_HDRLEN);
-            if (h->nlmsg_type == NLMSG_ERROR) {
-                const struct nlmsgerr *e;
-                e = ofpbuf_at(&buf, NLMSG_HDRLEN,
-                              NLMSG_ALIGN(sizeof(struct nlmsgerr)));
-                if (!e)
-                    return EINVAL;
-                if (e && e->error < 0)
-                    return -e->error;
-            }
-        } else if (error != EAGAIN) {
-            return error;
-        }
-        return 0;
+        ds_put_filter(&ds, &fprog);
+        VLOG_ERR("Failed to install socket filter: (%s). program hex: %s",
+                    ovs_strerror(error), ds_cstr(&ds));
+        ds_destroy(&ds);
+
+        return error;
+    }
+    return 0;
 }
 
 static void psample_set_filter(struct nl_sock *sock)
 {
     int error;
     if (has_filter) {
-        error = _psample_set_filter(sock, group_id, true);
+        error = _psample_set_filter(sock, group_id);
         if (error) {
             VLOG_WARN("Failed to install in-kernel filter (%s). "
                     "Falling back to userspace filtering.",

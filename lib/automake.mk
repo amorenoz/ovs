@@ -491,6 +491,9 @@ lib_libopenvswitch_la_SOURCES += \
 	lib/tc.h
 endif
 
+#lib/psamplec
+#lib/psample.h
+
 if HAVE_AF_XDP
 lib_libopenvswitch_la_SOURCES += \
 	lib/netdev-afxdp-pool.c \
