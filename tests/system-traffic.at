@@ -8983,8 +8983,17 @@ OVS_TRAFFIC_VSWITCHD_START()
 OVS_CHECK_PSAMPLE()
 
 ADD_NAMESPACES(at_ns0, at_ns1)
-ADD_VETH(p0, at_ns0, br0, "10.1.1.1/24")
-ADD_VETH(p1, at_ns1, br0, "10.1.1.2/24")
+NS_CHECK_EXEC([at_ns0], [sysctl -w net.ipv6.conf.all.disable_ipv6=1], [0], [ignore])
+NS_CHECK_EXEC([at_ns1], [sysctl -w net.ipv6.conf.all.disable_ipv6=1], [0], [ignore])
+
+ADD_VETH(p0, at_ns0, br0, "10.1.1.1/24", "e4:11:22:33:44:55")
+ADD_VETH(p1, at_ns1, br0, "10.1.1.2/24", "e4:11:22:33:44:66")
+
+NS_CHECK_EXEC([at_ns0], [arp -s 10.1.1.2 e4:11:22:33:44:66])
+NS_CHECK_EXEC([at_ns1], [arp -s 10.1.1.1 e4:11:22:33:44:55])
+
+
+AT_CHECK([ovs-appctl vlog/set dpif:dbg dpif_netdev:dbg ofproto_dpif_upcall:dbg])
 
 AT_CHECK([ovs-vsctl -- --id=@br0 get Bridge br0 \
                     -- --id=@ipfix create IPFIX targets=\"127.0.0.1:4739\" \
@@ -8992,7 +9001,6 @@ AT_CHECK([ovs-vsctl -- --id=@br0 get Bridge br0 \
          [0], [ignore])
 
 AT_DATA([flows.txt], [dnl
-arp action=NORMAL
 in_port=ovs-p0,ip actions=sample(probability=65535,collector_set_id=1,obs_domain_id=1431655765,obs_point_id=1717986918),output(port=ovs-p1,max_len=100)
 in_port=ovs-p1,ip actions=sample(probability=65535,collector_set_id=1,obs_domain_id=2290649224,obs_point_id=2576980377),output(port=ovs-p0,max_len=100)
 ])
@@ -9002,7 +9010,7 @@ AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
 # Disable trunc feature to force traffic to go through slow path.
 AT_CHECK([ovs-appctl dpif/set-dp-features br0 trunc false])
 
-AT_CHECK([ovs-appctl ofproto/trace br0 'in_port=ovs-p0,dl_src=50:54:00:00:00:05,dl_dst=50:54:00:00:00:07,dl_type=0x0800,nw_src=10.1.1.1,nw_dst=10.1.1.12'], [0], [stdout])
+AT_CHECK([ovs-appctl ofproto/trace br0 'in_port=ovs-p0,dl_src=e4:11:22:33:44:55,dl_dst=e4:11:22:33:44:66,dl_type=0x0800,nw_src=10.1.1.1,nw_dst=10.1.1.12'], [0], [stdout])
 AT_CHECK([tail -3 stdout], [0], [dnl
 Datapath actions: sample(sample=100.0%,group_id=10,cookie=5555555566666666,actions(userspace(pid=4294967295,flow_sample(probability=65535,collector_set_id=1,obs_domain_id=1431655765,obs_point_id=1717986918,output_port=4294967295)))),trunc(100),3
 This flow is handled by the userspace slow path because it:
@@ -9010,7 +9018,7 @@ This flow is handled by the userspace slow path because it:
 ])
 
 OVS_DAEMONIZE([ovs-psample > psample.out], [psample.pid])
-on_exit 'kill `cat psample.pid`'
+#on_exit 'kill `cat psample.pid`'
 sleep 1
 
 NS_CHECK_EXEC([at_ns0], [ping -q -c 1 10.1.1.2 | FORMAT_PING], [0], [dnl
@@ -9026,5 +9034,78 @@ NXST_IPFIX_FLOW reply (xid=0x2): 1 ids
           pkts errs=0, ipv4 errs=0, ipv6 errs=0, tx errs=0
 ])
 
+
 OVS_TRAFFIC_VSWITCHD_STOP(["/sending to collector failed/d"])
+AT_CLEANUP
+
+AT_SETUP([sample as clone])
+OVS_TRAFFIC_VSWITCHD_START()
+OVS_CHECK_PSAMPLE()
+
+AT_CHECK([ovs-appctl vlog/set dpif:dbg dpif_netdev:dbg ofproto_dpif_upcall:dbg])
+
+ADD_NAMESPACES(at_ns0, at_ns1)
+
+AT_CHECK([sysctl -w net.ipv6.conf.br0.disable_ipv6=1], [0], [ignore])
+NS_CHECK_EXEC([at_ns0], [sysctl -w net.ipv6.conf.all.disable_ipv6=1], [0], [ignore])
+NS_CHECK_EXEC([at_ns1], [sysctl -w net.ipv6.conf.all.disable_ipv6=1], [0], [ignore])
+
+ADD_VETH(p0, at_ns0, br0, "10.1.1.1/24", "e4:11:22:33:44:55")
+ADD_VETH(p1, at_ns1, br0, "10.1.1.2/24", "e4:11:22:33:44:66")
+
+AT_CHECK([ovs-vsctl -- set interface ovs-p0 ofport_request=1 \
+                    -- set interface ovs-p1 ofport_request=2])
+
+NS_CHECK_EXEC([at_ns0], [arp -s 10.1.1.2 e4:11:22:33:44:66])
+NS_CHECK_EXEC([at_ns1], [arp -s 10.1.1.1 e4:11:22:33:44:55])
+
+AT_CHECK([ip link set br0 up])
+
+AT_DATA([flows.txt], [dnl
+in_port=ovs-p0,ip actions=clone(mod_dl_src(e4:ff:ff:ff:ff:55), output(port=LOCAL,max_len=100)),output(port=ovs-p1,max_len=150)
+in_port=ovs-p1,ip actions=clone(mod_dl_src(e4:ff:ff:ff:ff:66), output(port=LOCAL,max_len=100)),output(port=ovs-p0,max_len=150)
+])
+
+AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
+
+# Disable clone to force the use of sample as its replacement.
+AT_CHECK([ovs-appctl dpif/set-dp-features br0 clone false])
+
+AT_CHECK([ovs-appctl ofproto/trace br0 'in_port=ovs-p0,dl_src=e4:11:22:33:44:55,dl_dst=e4:11:22:33:44:66,dl_type=0x0800,nw_src=10.1.1.1,nw_dst=10.1.1.12'], [0], [stdout])
+AT_CHECK([tail -1 stdout], [0], [dnl
+Datapath actions: sample(sample=100.0%,actions(trunc(100),set(eth(src=e4:ff:ff:ff:ff:55)),1)),trunc(150),3
+])
+
+NS_CHECK_EXEC([at_ns0], [ping -q -c 3 10.1.1.2 | FORMAT_PING], [0], [dnl
+3 packets transmitted, 3 received, 0% packet loss, time 0ms
+])
+
+AT_CHECK([grep -E "execute" ovs-vswitchd.log || true], [0], [ignore])
+
+OVS_WAIT_UNTIL([test $(ovs-vsctl get Interface br0 statistics:rx_packets) -eq 6])
+
+AT_CHECK([test $(ovs-appctl coverage/read-counter dpif_execute_with_help) -eq 0])
+
+# Disable trunc to force the execution of the actions in userspace.
+AT_CHECK([ovs-appctl dpif/set-dp-features br0 trunc false])
+
+AT_CHECK([ovs-appctl ofproto/trace br0 'in_port=ovs-p0,dl_src=e4:11:22:33:44:55,dl_dst=e4:11:22:33:44:66,dl_type=0x0800,nw_src=10.1.1.1,nw_dst=10.1.1.12'], [0], [stdout])
+AT_CHECK([tail -3 stdout], [0], [dnl
+Datapath actions: sample(sample=100.0%,actions(trunc(100),set(eth(src=e4:ff:ff:ff:ff:55)),1)),trunc(150),3
+This flow is handled by the userspace slow path because it:
+  - Uses action(s) not supported by datapath.
+])
+
+NS_CHECK_EXEC([at_ns0], [ping -q -c 3 10.1.1.2 | FORMAT_PING], [0], [dnl
+3 packets transmitted, 3 received, 0% packet loss, time 0ms
+])
+
+# There is no good way to verify that sample action was not
+# executed with datapath assistance so checking the logs.
+# 6 (3 per direction) packets should have sent to local port (1).
+AT_CHECK([test $(grep -E -c 'sub-execute 1' ovs-vswitchd.log) -eq 6])
+# sample action should not have been executed with datapath assistance.
+AT_CHECK([test $(grep -E -c 'sub-execute sample' ovs-vswitchd.log) -eq 0])
+
+OVS_TRAFFIC_VSWITCHD_STOP()
 AT_CLEANUP
