@@ -43,6 +43,7 @@
 #include "openvswitch/vlog.h"
 #ifdef __linux__
 #include <linux/if_packet.h>
+#include <linux/filter.h>
 #endif
 #ifdef HAVE_NETLINK
 #include "netlink-protocol.h"
@@ -1356,4 +1357,44 @@ wrap_recvmmsg(int fd, struct mmsghdr *msgs, unsigned int n,
     return emulate_recvmmsg(fd, msgs, n, flags, timeout);
 }
 #endif
+#endif /* __linux__ */
+
+
+/* Socket filter utilities. */
+#ifdef __linux__
+
+/* Puts the string representation of the filter program into ds.
+ * The format is similar to what tcpdump "-ddd" prints only newlines are
+ * replaced with ",". This formats matches the output of linux tool bpf_asm
+ * and is accepted by bpf_dbg.
+ */
+static void ds_put_filter(struct ds *ds, const struct sock_fprog *fprog) {
+    struct sock_filter *ins;
+    int i;
+
+    ds_put_format(ds, "%u,", fprog->len);
+    for (i = 0; i < fprog->len; i++) {
+        ins = &fprog->filter[i];
+        ds_put_format(ds, "%u %u %u %u,", ins->code, ins->jt, ins->jf, ins->k);
+    }
+}
+
+int
+sock_attach_filter(int fd, const struct sock_fprog *fprog) {
+    int error;
+
+    error = setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &fprog,
+                       sizeof(fprog));
+    if (error) {
+        struct ds ds = DS_EMPTY_INITIALIZER;
+
+        ds_put_filter(&ds, fprog);
+        VLOG_ERR("Failed to install socket filter filter: (%s)."
+                 " program hex: %s", ovs_strerror(error), ds_cstr(&ds));
+        ds_destroy(&ds);
+
+        return error;
+    }
+    return 0;
+}
 #endif /* __linux__ */

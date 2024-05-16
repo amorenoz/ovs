@@ -183,4 +183,9 @@ static inline int sock_errno(void)
 #endif
 }
 
+#ifdef __linux__
+struct sock_fprog;
+int sock_attach_filter(int fd, const struct sock_fprog *fprog);
+#endif /* __linux__ */
+
 #endif /* socket-util.h */

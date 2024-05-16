@@ -483,6 +483,8 @@ lib_libopenvswitch_la_SOURCES += \
 	lib/netlink-protocol.h \
 	lib/netlink-socket.c \
 	lib/netlink-socket.h \
+	lib/psample.c \
+	lib/psample.h \
 	lib/rtnetlink.c \
 	lib/rtnetlink.h \
 	lib/route-table.c \
@@ -491,8 +493,6 @@ lib_libopenvswitch_la_SOURCES += \
 	lib/tc.h
 endif
 
-#lib/psamplec
-#lib/psample.h
 
 if HAVE_AF_XDP
 lib_libopenvswitch_la_SOURCES += \
