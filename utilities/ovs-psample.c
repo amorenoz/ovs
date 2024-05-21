@@ -30,6 +30,7 @@
 #include "util.h"
 #include "netlink.h"
 #include "netlink-socket.h"
+#include "psample.h"
 #include "openvswitch/dynamic-string.h"
 #include "openvswitch/ofp-actions.h"
 #include "openvswitch/ofp-print.h"
@@ -42,8 +43,6 @@ VLOG_DEFINE_THIS_MODULE(ovs_psample);
 /* -g, --group: Group id filter option */
 static uint32_t group_id = 0;
 static bool has_filter;
-
-static int psample_family = 0;
 
 OVS_NO_RETURN static void usage(void)
 {
@@ -60,9 +59,7 @@ OVS_NO_RETURN static void usage(void)
 struct sample;
 static inline void sample_clear(struct sample *sample);
 static int parse_psample(struct ofpbuf *, struct sample *sample);
-static void psample_set_filter(struct nl_sock *sock);
 static void parse_options(int argc, char *argv[]);
-static int connect_psample_socket(struct nl_sock **sock);
 static void run(struct nl_sock *sock);
 
 int
@@ -73,12 +70,24 @@ main(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
 
     parse_options(argc, argv);
 
-    error = connect_psample_socket(&sock);
+    error = nl_sock_create(NETLINK_GENERIC, &sock);
     if (error) {
+        VLOG_ERR("cannot create netlink socket: %s ", ovs_strerror(error));
+        return error;
+    }
+
+    error = psample_connect(sock, true, has_filter? &group_id : NULL);
+    if (error) {
+        VLOG_ERR("cannot connect netlink socket to psample: %s ",
+                 ovs_strerror(error));
+        goto out;
         return error;
     }
 
     run(sock);
+out:
+    nl_sock_destroy(sock);
+    return error;
 }
 
 static void parse_options(int argc, char *argv[])
@@ -138,44 +147,6 @@ static void parse_options(int argc, char *argv[])
     free(short_options);
 }
 
-static int connect_psample_socket(struct nl_sock **sock)
-{
-    unsigned int psample_packet_mcgroup;
-    int error;
-
-    error = nl_lookup_genl_family(PSAMPLE_GENL_NAME , &psample_family);
-    if (error) {
-        VLOG_ERR("PSAMPLE_GENL_NAME not found: %i", error);
-    }
-
-    error = nl_lookup_genl_mcgroup(PSAMPLE_GENL_NAME,
-                                   PSAMPLE_NL_MCGRP_SAMPLE_NAME,
-                                   &psample_packet_mcgroup);
-    if (error) {
-        VLOG_ERR("psample packet multicast group not found: %i", error);
-        return error;
-    }
-
-    error = nl_sock_create(NETLINK_GENERIC, sock);
-    if (error) {
-        VLOG_ERR("cannot create netlink socket: %i ", error);
-        return error;
-    }
-
-    nl_sock_listen_all_nsid(*sock, true);
-
-    psample_set_filter(*sock);
-
-    error = nl_sock_join_mcgroup(*sock, psample_packet_mcgroup);
-    if (error) {
-        nl_sock_destroy(*sock);
-        *sock = NULL;
-        VLOG_ERR("cannot join psample multicast group: %i", error);
-        return error;
-    }
-    return 0;
-}
-
 /* Internal representation of a sample. */
 struct sample {
     struct dp_packet packet;
@@ -233,112 +204,6 @@ parse_psample(struct ofpbuf *buf, struct sample *sample) {
         sample->obs_point_id = cookie[1];
     }
     return 0;
-}
-
-static struct sock_filter psample_group_filter[] = {
-    /* Load sizeof(struct nlmsghdr) + sizeof(struct genlmsghdr) into A. */
-    BPF_STMT(BPF_LD + BPF_IMM, sizeof(struct nlmsghdr) +
-                               sizeof(struct genlmsghdr)),
-
-    /* Load PSAMPLE_ATTR_SAMPLE_GROUP into X.*/
-    BPF_STMT(BPF_LDX + BPF_IMM, PSAMPLE_ATTR_SAMPLE_GROUP),
-
-    /* Access ancillary data at offset SKF_AD_NLATTR.
-     * This BPF extension is equivalent to calling:
-     *
-     *   nla = nla_find((struct nlattr *) &skb->data[A], skb->len - A, X);
-     *   if (nla) {
-     *        return (void *) nla - (void *) skb->data;
-     *   }
-     *   return 0;
-     *
-     *  The result is stored in A.
-     */
-    BPF_STMT(BPF_LD + BPF_ABS, SKF_AD_OFF + SKF_AD_NLATTR),
-
-    /* Check if the value in A is zero (which means the
-     * PSAMPLE_ATTR_SAMPLE_GROUP was not found), jump 4 instructions ahead,
-     * returning "pass".
-     */
-    BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0, 4, 0),
-
-    /* Copy A into X. */
-    BPF_STMT(BPF_MISC + BPF_TAX, 0),
-
-    /* Load the word in skb data at offset X + sizeof(struct nlattr) into A.
-     * (skb->data + X + sizeof(nlattr)) points to the group number.
-     */
-    BPF_STMT(BPF_LD + BPF_W + BPF_IND, sizeof(struct nlattr)),
-
-    /* Perform the actual group comparison.
-     * The inmediate value of this instruction must be replaced with the
-     * actual group_id.
-     */
-#define FILTER_GROUP_INS 6
-    BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, 0x38000000, 1, 0),	 /* pass */
-
-    /* Return zero, i.e: drop. */
-    BPF_STMT(BPF_RET + BPF_K, (u_int) 0),
-
-    /* Return -1, i.e: pass. */
-    BPF_STMT(BPF_RET + BPF_K, (u_int) -1),
-};
-
-/* Puts the string representation of the filter into ds.
- * The format is similar to what tcpdump "-ddd" prints only newlines are
- * replaced with ",". This formats matches the output of linux tool bpf_asm
- * and is accepted by bpf_dbg
- */
-static void ds_put_filter(struct ds *ds, const struct sock_fprog *fprog) {
-    struct sock_filter *ins;
-    int i;
-
-    ds_put_format(ds, "%u,", fprog->len);
-    for (i = 0; i < fprog->len; i++) {
-        ins = &fprog->filter[i];
-        ds_put_format(ds, "%u %u %u %u,", ins->code, ins->jt, ins->jf, ins->k);
-    }
-}
-
-static int _psample_set_filter(struct nl_sock *sock, uint32_t group)
-{
-    struct sock_fprog fprog = {};
-    int error;
-
-    fprog.len = ARRAY_SIZE(psample_group_filter);
-    fprog.filter = xmalloc(sizeof(psample_group_filter));
-    memcpy(fprog.filter, psample_group_filter,
-           sizeof(psample_group_filter));
-
-    /* Replace the group number */
-    fprog.filter[FILTER_GROUP_INS].k = ntohl(group);
-
-    error = setsockopt(nl_sock_fd(sock), SOL_SOCKET, SO_ATTACH_FILTER, &fprog,
-                     sizeof(fprog));
-    if (error) {
-        struct ds ds = DS_EMPTY_INITIALIZER;
-
-        ds_put_filter(&ds, &fprog);
-        VLOG_ERR("Failed to install socket filter: (%s). program hex: %s",
-                    ovs_strerror(error), ds_cstr(&ds));
-        ds_destroy(&ds);
-
-        return error;
-    }
-    return 0;
-}
-
-static void psample_set_filter(struct nl_sock *sock)
-{
-    int error;
-    if (has_filter) {
-        error = _psample_set_filter(sock, group_id);
-        if (error) {
-            VLOG_WARN("Failed to install in-kernel filter (%s). "
-                    "Falling back to userspace filtering.",
-                    ovs_strerror(error));
-        }
-    }
 }
 
 static void run(struct nl_sock *sock)
