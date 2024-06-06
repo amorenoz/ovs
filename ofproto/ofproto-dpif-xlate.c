@@ -5899,6 +5899,28 @@ xlate_fin_timeout(struct xlate_ctx *ctx,
     }
 }
 
+static uint32_t
+ofpact_sample_get_domain(struct xlate_ctx *ctx,
+                         const struct ofpact_sample *os)
+{
+    if (os->obs_domain_src.field) {
+        return mf_get_subfield(&os->obs_domain_src, &ctx->xin->flow);
+    } else {
+        return os->obs_domain_imm;
+    }
+}
+
+static uint32_t
+ofpact_sample_get_point(struct xlate_ctx *ctx,
+                         const struct ofpact_sample *os)
+{
+    if (os->obs_point_src.field) {
+        return mf_get_subfield(&os->obs_point_src, &ctx->xin->flow);
+    } else {
+        return os->obs_point_imm;
+    }
+}
+
 static void
 xlate_fill_ipfix_sample(struct xlate_ctx *ctx,
                         const struct ofpact_sample *os,
@@ -5964,8 +5986,9 @@ xlate_fill_ipfix_sample(struct xlate_ctx *ctx,
     upcall->cookie.ofproto_uuid = ctx->xbridge->ofproto->uuid;
     upcall->cookie.flow_sample.probability = os->probability;
     upcall->cookie.flow_sample.collector_set_id = os->collector_set_id;
-    upcall->cookie.flow_sample.obs_domain_id = os->obs_domain_id;
-    upcall->cookie.flow_sample.obs_point_id = os->obs_point_id;
+    upcall->cookie.flow_sample.obs_domain_id =
+        ofpact_sample_get_domain(ctx, os);
+    upcall->cookie.flow_sample.obs_point_id = ofpact_sample_get_point(ctx, os);
     upcall->cookie.flow_sample.output_odp_port = output_odp_port;
     upcall->cookie.flow_sample.direction = os->direction;
     upcall->include_actions = false;
@@ -5975,7 +5998,8 @@ static void
 xlate_sample_action(struct xlate_ctx *ctx,
                     const struct ofpact_sample *os)
 {
-    uint8_t cookie_buf[sizeof(os->obs_domain_id) + sizeof(os->obs_point_id)];
+    uint8_t cookie_buf[sizeof(os->obs_domain_imm) +
+                       sizeof(os->obs_point_imm)];
     struct dpif_lsample *lsample = ctx->xbridge->lsample;
     struct dpif_ipfix *ipfix = ctx->xbridge->ipfix;
     struct compose_sample_args compose_args = {};
@@ -6001,13 +6025,15 @@ xlate_sample_action(struct xlate_ctx *ctx,
         dpif_lsample_get_group_id(lsample,
                                   os->collector_set_id,
                                   &group_id)) {
+        uint32_t obs_domain, obs_point;
+
         emit_sample.group_id = group_id;
         ofpbuf_use_stub(&emit_sample.cookie, cookie_buf, sizeof cookie_buf);
+        obs_domain = ofpact_sample_get_domain(ctx, os);
+        obs_point = ofpact_sample_get_point(ctx, os);
 
-        ofpbuf_put(&emit_sample.cookie, &os->obs_domain_id,
-                   sizeof(os->obs_domain_id));
-        ofpbuf_put(&emit_sample.cookie, &os->obs_point_id,
-                   sizeof(os->obs_point_id));
+        ofpbuf_put(&emit_sample.cookie, &obs_domain, sizeof(obs_domain));
+        ofpbuf_put(&emit_sample.cookie, &obs_point, sizeof(obs_point));
 
         compose_args.emit = &emit_sample;
 
