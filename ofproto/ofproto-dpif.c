@@ -5907,9 +5907,10 @@ get_datapath_cap(const char *datapath_type, struct smap *cap)
     smap_add(cap, "add_mpls", s->add_mpls ? "true" : "false");
     smap_add(cap, "psample", s->psample ? "true" : "false");
 
-    /* The ct_tuple_flush is implemented on dpif level, so it is supported
-     * for all backers. */
+    /* The following features are implemented on dpif level, so they are
+    * supported for all backers. */
     smap_add(cap, "ct_flush", "true");
+    smap_add(cap, "obs_ids_from_fields", "true");
 }
 
 /* Gets timeout policy name in 'backer' based on 'zone', 'dl_type' and

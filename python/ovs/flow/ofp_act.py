@@ -246,9 +246,9 @@ def decode_chk_pkt_larger(value):
     return {"pkt_len": pkt_len, "dst": dst}
 
 
-# CT decoders
-def decode_zone(value):
-    """Decodes the value of the 'zone' keyword (part of the ct action)."""
+def decode_field_or_int(value):
+    """Decodes a value that can be either a subfield specification or an
+    integer."""
     try:
         return int(value, 0)
     except ValueError:
@@ -256,6 +256,7 @@ def decode_zone(value):
     return decode_field(value)
 
 
+# CT decoders
 def decode_learn(action_decoders):
     """Create the decoder to be used to decode the 'learn' action.
 
