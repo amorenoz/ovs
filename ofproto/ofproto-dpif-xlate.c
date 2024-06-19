@@ -715,6 +715,7 @@ static void xlate_xbundle_copy(struct xbridge *, struct xbundle *);
 static void xlate_xport_copy(struct xbridge *, struct xbundle *,
                              struct xport *);
 static void xlate_xcfg_free(struct xlate_cfg *);
+static void put_drop_action(struct ofpbuf *, enum xlate_error);
 
 /* Tracing helpers. */
 
@@ -3391,6 +3392,7 @@ struct sample_userspace_args {
 struct compose_sample_args {
     uint32_t probability;                     /* Number of packets out of
                                                * UINT32_MAX to sample. */
+    bool last_action;                         /* If it's the last action */
     struct sample_userspace_args *userspace;  /* Optional,
                                                * arguments for userspace. */
     struct sample_psample_args *psample;      /* Optional,
@@ -3454,6 +3456,11 @@ compose_sample_action(struct xlate_ctx *ctx,
         ovs_assert(res == 0);
     }
 
+    if (args->last_action &&
+        ovs_explicit_drop_action_supported(ctx->xbridge->ofproto)) {
+        put_drop_action(ctx->odp_actions, XLATE_OK);
+    }
+
     if (is_sample) {
         nl_msg_end_nested(ctx->odp_actions, actions_offset);
         nl_msg_end_nested(ctx->odp_actions, sample_offset);
@@ -3489,6 +3496,7 @@ compose_sflow_action(struct xlate_ctx *ctx)
 
     args.probability = dpif_sflow_get_probability(sflow);
     args.userspace = &userspace;
+    args.last_action = false;
 
     return compose_sample_action(ctx, &args);
 }
@@ -3542,6 +3550,7 @@ compose_ipfix_action(struct xlate_ctx *ctx, odp_port_t output_odp_port)
 
     args.probability = dpif_ipfix_get_bridge_exporter_probability(ipfix);
     args.userspace = &userspace;
+    args.last_action = false;
 
     compose_sample_action(ctx, &args);
 }
@@ -5974,7 +5983,8 @@ xlate_fill_ipfix_sample(struct xlate_ctx *ctx,
 
 static void
 xlate_sample_action(struct xlate_ctx *ctx,
-                    const struct ofpact_sample *os)
+                    const struct ofpact_sample *os,
+                    bool last_action)
 {
     struct dpif_lsample *lsample = ctx->xbridge->lsample;
     struct dpif_ipfix *ipfix = ctx->xbridge->ipfix;
@@ -5990,6 +6000,7 @@ xlate_sample_action(struct xlate_ctx *ctx,
      * the same percentage. */
     compose_args.probability =
         ((uint32_t) os->probability << 16) | os->probability;
+    compose_args.last_action = last_action;
 
     if (ipfix) {
         xlate_fill_ipfix_sample(ctx, os, ipfix, &userspace);
@@ -7712,7 +7723,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             break;
 
         case OFPACT_SAMPLE:
-            xlate_sample_action(ctx, ofpact_get_SAMPLE(a));
+            xlate_sample_action(ctx, ofpact_get_SAMPLE(a), last);
             break;
 
         case OFPACT_CLONE:
