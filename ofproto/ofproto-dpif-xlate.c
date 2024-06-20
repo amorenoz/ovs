@@ -3391,6 +3391,8 @@ struct sample_userspace_args {
 struct compose_sample_args {
     uint32_t probability;                   /* Number of packets out of
                                              * UINT32_MAX to sample. */
+    uint16_t max_len;                       /* Maximum number of bytes to
+                                             * sample. */
     struct sample_userspace_args *upcall;   /* Optional,
                                              * arguments for userspace. */
     struct sample_emit_args *emit;          /* Optional,
@@ -3432,6 +3434,13 @@ compose_sample_action(struct xlate_ctx *ctx,
     }
 
     if (args->emit) {
+        if (args->max_len != UINT16_MAX) {
+            struct ovs_action_trunc *trunc;
+            trunc = nl_msg_put_unspec_uninit(ctx->odp_actions,
+                                             OVS_ACTION_ATTR_TRUNC,
+                                             sizeof *trunc);
+            trunc->max_len = args->max_len;
+        }
         odp_put_emit_sample_action(ctx->odp_actions,
                                    args->emit->group_id,
                                    args->emit->cookie.data,
@@ -3441,6 +3450,13 @@ compose_sample_action(struct xlate_ctx *ctx,
     if (args->upcall) {
         if (meter_id != UINT32_MAX) {
             nl_msg_put_u32(ctx->odp_actions, OVS_ACTION_ATTR_METER, meter_id);
+        }
+        if (args->max_len != UINT16_MAX) {
+            struct ovs_action_trunc *trunc;
+            trunc = nl_msg_put_unspec_uninit(ctx->odp_actions,
+                                             OVS_ACTION_ATTR_TRUNC,
+                                             sizeof *trunc);
+            trunc->max_len = args->max_len;
         }
 
         odp_port_t odp_port = ofp_port_to_odp_port(
@@ -6015,6 +6031,7 @@ xlate_sample_action(struct xlate_ctx *ctx,
      * the same percentage. */
     compose_args.probability =
         ((uint32_t) os->probability << 16) | os->probability;
+    compose_args.max_len = os->max_len;
 
     if (ipfix) {
         xlate_fill_ipfix_sample(ctx, os, ipfix, &upcall);

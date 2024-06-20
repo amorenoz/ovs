@@ -6193,14 +6193,14 @@ struct nx_action_sample2 {
 /* Action structure for NXAST_SAMPLE4
  *
  * NXAST_SAMPLE4 was added in Open vSwitch 3.4.0.  Compared to NXAST_SAMPLE3,
- * it adds support for the 'max_length' field and the possibility to use
+ * it adds support for the 'max_len' field and the possibility to use
  * field specifiers for observation_domain_id and observation_point_id.
  */
 struct nx_action_sample4 {
     ovs_be16 type;                  /* OFPAT_VENDOR. */
-    ovs_be16 len;                   /* Length is 32. */
+    ovs_be16 len;                   /* Length is 40. */
     ovs_be32 vendor;                /* NX_VENDOR_ID. */
-    ovs_be16 subtype;               /* NXAST_SAMPLE. */
+    ovs_be16 subtype;               /* NXAST_SAMPLE4. */
     ovs_be16 probability;           /* Fraction of packets to sample. */
     ovs_be32 collector_set_id;      /* ID of collector set in OVSDB. */
     ovs_be32 obs_domain_src;     /* Source of the observation_domain_id. */
@@ -6214,10 +6214,11 @@ struct nx_action_sample4 {
         ovs_be32 obs_point_imm;        /* Immediate value for zone. */
     };
     ovs_be16 sampling_port;         /* Sampling port. */
+    ovs_be16 max_len;               /* Truncate sample to max_len bytes */
     uint8_t  direction;             /* Sampling direction. */
-    uint8_t  zeros[5];              /* Pad to a multiple of 8 bytes */
+    uint8_t  zeros[3];              /* Pad to a multiple of 8 bytes */
  };
- OFP_ASSERT(sizeof(struct nx_action_sample4) == 40);
+OFP_ASSERT(sizeof(struct nx_action_sample4) == 40);
 
 static enum ofperr
 decode_NXAST_RAW_SAMPLE(const struct nx_action_sample *nas,
@@ -6260,6 +6261,7 @@ decode_SAMPLE2(const struct nx_action_sample2 *nas,
     sample->obs_point_src.field = NULL;
     sample->sampling_port = u16_to_ofp(ntohs(nas->sampling_port));
     sample->direction = direction;
+    sample->max_len = UINT16_MAX;
 
     if (sample->probability == 0) {
         return OFPERR_OFPBAC_BAD_ARGUMENT;
@@ -6365,6 +6367,7 @@ decode_NXAST_RAW_SAMPLE4(const struct nx_action_sample4 *nas,
     sample->collector_set_id = ntohl(nas->collector_set_id);
     sample->sampling_port = u16_to_ofp(ntohs(nas->sampling_port));
     sample->direction = nas->direction;
+    sample->max_len = nas->max_len;
 
     if (sample->probability == 0) {
         return OFPERR_OFPBAC_BAD_ARGUMENT;
@@ -6413,6 +6416,7 @@ encode_SAMPLE4(const struct ofpact_sample *sample,
     nas->collector_set_id = htonl(sample->collector_set_id);
     nas->sampling_port = htons(ofp_to_u16(sample->sampling_port));
     nas->direction = sample->direction;
+    nas->max_len = sample->max_len;
 
     if (sample->obs_domain_src.field) {
         nas->obs_domain_src =
@@ -6441,6 +6445,7 @@ encode_SAMPLE(const struct ofpact_sample *sample,
               enum ofp_version ofp_version OVS_UNUSED, struct ofpbuf *out)
 {
     if (sample->ofpact.raw == NXAST_RAW_SAMPLE4 ||
+        sample->max_len != UINT16_MAX ||
         sample->obs_domain_src.field ||
         sample->obs_point_src.field) {
         encode_SAMPLE4(sample, put_NXAST_SAMPLE4(out));
@@ -6470,6 +6475,7 @@ parse_SAMPLE(char *arg, const struct ofpact_parse_params *pp)
     struct ofpact_sample *os = ofpact_put_SAMPLE(pp->ofpacts);
     os->sampling_port = OFPP_NONE;
     os->direction = NX_ACTION_SAMPLE_DEFAULT;
+    os->max_len = UINT16_MAX;
 
     char *key, *value;
     while (ofputil_parse_key_value(&arg, &key, &value)) {
@@ -6510,6 +6516,8 @@ parse_SAMPLE(char *arg, const struct ofpact_parse_params *pp)
             os->direction = NX_ACTION_SAMPLE_INGRESS;
         } else if (!strcmp(key, "egress")) {
             os->direction = NX_ACTION_SAMPLE_EGRESS;
+        } else if (!strcmp(key, "max_len")) {
+            error = str_to_u16(value, "max_len", &os->max_len);
         } else {
             error = xasprintf("invalid key \"%s\" in \"sample\" argument",
                               key);
@@ -6559,6 +6567,10 @@ format_SAMPLE(const struct ofpact_sample *a,
         ds_put_format(fp->s, ",%singress%s", colors.param, colors.end);
     } else if (a->direction == NX_ACTION_SAMPLE_EGRESS) {
         ds_put_format(fp->s, ",%segress%s", colors.param, colors.end);
+    }
+    if (a->max_len != UINT16_MAX) {
+        ds_put_format(fp->s, ",%smax_len=%s%"PRIu16, colors.param, colors.end,
+                      a->max_len);
     }
     ds_put_format(fp->s, "%s)%s", colors.paren, colors.end);
 }

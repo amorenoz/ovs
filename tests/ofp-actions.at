@@ -490,7 +490,13 @@ ffff 0020 00002320 0015 000500000000 80003039005A02fd 0400000000000000
 ffff 0018 00002320 001d 3039 00005BA0 00008707 0000B26E
 
 # actions=sample(probability=12345,collector_set_id=23456,obs_domain_id=NXM_NX_CT_LABEL[0..31],obs_point_id=NXM_NX_CT_LABEL[32..63],sampling_port=0)
-ffff 0028 00002320 0033 3039 00005ba0 0001d810 001f0000 0001d810 081f0000 0000 000000000000
+ffff 0028 00002320 0033 3039 00005ba0 0001d810 001f0000 0001d810 081f0000 0000 ffff00000000
+
+# actions=sample(probability=12345,collector_set_id=23456,obs_domain_id=NXM_NX_CT_LABEL[0..31],obs_point_id=NXM_NX_CT_LABEL[32..63],max_len=100,egress)
+ffff 0028 00002320 0033 3039 00005ba0 0001d810 001f0000 0001d810 081f0000 ffff 640002000000
+
+# actions=sample(probability=12345,collector_set_id=23456,obs_domain_id=34567,obs_point_id=45678,max_len=100)
+ffff 0028 00002320 0033 3039 00005ba0 00000000 00008707 00000000 0000b26e ffff 640000000000
 
 # bad OpenFlow11 actions: OFPBAC_BAD_OUT_PORT
 & ofp_actions|WARN|bad action at offset 0 (OFPBAC_BAD_OUT_PORT):
@@ -1124,8 +1130,8 @@ bad_action 'unroll_xlate' "UNROLL is an internal action that shouldn't be used v
 # sample
 bad_action 'sample(probability=0)' 'invalid probability value "0"'
 bad_action 'sample(sampling_port=asdf)' 'asdf: unknown port'
-bad_action 'sample(probability=12345,obs_domain_id=NXM_NX_CT_LABEL[0..30])' 'asdf: unknown port'
-bad_action 'sample(probability=12345,obs_point_id=NXM_NX_CT_LABEL[0..33])' 'asdf: unknown port'
+bad_action 'sample(probability=12345,obs_domain_id=NXM_NX_CT_LABEL[0..30])' 'field associated to sample observation id is not 32-bit but 30'
+bad_action 'sample(probability=12345,obs_point_id=NXM_NX_CT_LABEL[0..33])' 'field associated to sample observation id is not 32-bit but 33'
 bad_action 'sample(foo=bar)' 'invalid key "foo" in "sample" argument'
 bad_action 'sample' 'non-zero "probability" must be specified on sample'
 

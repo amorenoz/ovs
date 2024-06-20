@@ -1027,6 +1027,7 @@ struct ofpact_sample {
         struct mf_subfield obs_point_src;
         ofp_port_t sampling_port;
         enum nx_action_sample_direction direction;
+        uint16_t max_len;
     );
 };
 
