@@ -6338,6 +6338,7 @@ decode_sample_obs_id(ovs_be32 src, ovs_be16 ofs_nbits, ovs_be32 imm,
         }
     } else {
         src_out->field = NULL;
+        *imm_out = ntohl(imm);
     }
 
     return 0;
