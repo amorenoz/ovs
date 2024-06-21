@@ -6239,6 +6239,7 @@ decode_NXAST_RAW_SAMPLE(const struct nx_action_sample *nas,
     sample->direction = NX_ACTION_SAMPLE_DEFAULT;
     sample->obs_domain_src.field = NULL;
     sample->obs_point_src.field = NULL;
+    sample->max_len = UINT16_MAX;
     if (sample->probability == 0) {
         return OFPERR_OFPBAC_BAD_ARGUMENT;
     }
@@ -6337,7 +6338,6 @@ decode_sample_obs_id(ovs_be32 src, ovs_be16 ofs_nbits, ovs_be32 imm,
         }
     } else {
         src_out->field = NULL;
-        *imm_out = ntohs(imm);
     }
 
     return 0;
@@ -6529,7 +6529,6 @@ parse_SAMPLE(char *arg, const struct ofpact_parse_params *pp)
     if (os->probability == 0) {
         return xstrdup("non-zero \"probability\" must be specified on sample");
     }
-
     return NULL;
 }
 

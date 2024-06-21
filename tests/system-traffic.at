@@ -9264,7 +9264,7 @@ local sample statistics for bridge "br0":
 OVS_TRAFFIC_VSWITCHD_STOP(["/sending to collector failed/d"])
 AT_CLEANUP
 
-AT_SETUP([per-flow-sampline - trunc])
+AT_SETUP([per-flow-sampling - trunc])
 CHECK_CONNTRACK()
 OVS_TRAFFIC_VSWITCHD_START()
 OVS_CHECK_EMIT_SAMPLE()
@@ -9284,8 +9284,9 @@ AT_CHECK([ovs-vsctl -- --id=@br0 get Bridge br0 \
 
 # Only sample the ethernet header.
 AT_DATA([flows.txt], [dnl
-in_port=ovs-p0,ip actions=sample(probability=65535,collector_set_id=1,obs_domain_id=1431655765,obs_point_id=1717986918,max_len=14),output(port=ovs-p1)
-in_port=ovs-p1,ip actions=sample(probability=65535,collector_set_id=2,obs_domain_id=2290649224,obs_point_id=2576980377,max_len=14),output(port=ovs-p0)
+arp actions=NORMAL
+in_port=ovs-p0,ip actions=sample(probability=65535,collector_set_id=1,obs_domain_id=1431655765,obs_point_id=1717986918,max_len=14),NORMAL
+in_port=ovs-p1,ip actions=sample(probability=65535,collector_set_id=2,obs_domain_id=2290649224,obs_point_id=2576980377,max_len=14),NORMAL
 ])
 
 AT_CHECK([ovs-ofctl add-flows br0 flows.txt])
@@ -9296,10 +9297,10 @@ NS_CHECK_EXEC([at_ns0], [ping -q -c 1 10.1.1.2 | FORMAT_PING], [0], [dnl
 1 packets transmitted, 1 received, 0% packet loss, time 0ms
 ])
 
-m4_define([SAMPLE1], [group_id=0xa obs_domain=0x55555555,obs_point=0x66666666 .*icmp.*nw_src=10.1.1.1,nw_dst=10.1.1.2])
-m4_define([SAMPLE2], [group_id=0xc obs_domain=0x88888888,obs_point=0x99999999 .*icmp.*nw_src=10.1.1.2,nw_dst=10.1.1.1])
-AT_CHECK([grep -E 'SAMPLE1' psample.out >/dev/null])
-AT_CHECK([grep -E 'SAMPLE2' psample.out >/dev/null])
+m4_define([SAMPLE1], [group_id=0xa obs_domain=0x55555555,obs_point=0x66666666 .*nw_src=0.0.0.0,nw_dst=0.0.0.0])
+m4_define([SAMPLE2], [group_id=0xc obs_domain=0x88888888,obs_point=0x99999999 .*nw_src=0.0.0.0,nw_dst=0.0.0.0])
+OVS_WAIT_UNTIL([grep -E 'SAMPLE1' psample.out >/dev/null])
+OVS_WAIT_UNTIL([grep -E 'SAMPLE2' psample.out >/dev/null])
 
 AT_CHECK([ovs-appctl lsample/show br0], [0], [dnl
 local sample statistics for bridge "br0":
@@ -9313,6 +9314,16 @@ local sample statistics for bridge "br0":
   Total number of bytes: 98
   Total number of packets: 1
 ])
+
+# IPFIX should warn about ipv4 errors as the header is missing.
+AT_CHECK([ovs-ofctl dump-ipfix-flow br0 | sed 's/tx pkts=[[0-9]]*/tx pkts=24/' | sed 's/tx errs=[[0-9]]*/tx errs=0/'], [0], [dnl
+NXST_IPFIX_FLOW reply (xid=0x2): 2 ids
+  id   1: flows=1, current flows=0, sampled pkts=1, ipv4 ok=0, ipv6 ok=0, tx pkts=24
+          pkts errs=1, ipv4 errs=1, ipv6 errs=0, tx errs=0
+  id   2: flows=1, current flows=0, sampled pkts=1, ipv4 ok=0, ipv6 ok=0, tx pkts=24
+          pkts errs=1, ipv4 errs=1, ipv6 errs=0, tx errs=0
+])
+
 
 OVS_TRAFFIC_VSWITCHD_STOP(["/sending to collector failed/d"])
 AT_CLEANUP
