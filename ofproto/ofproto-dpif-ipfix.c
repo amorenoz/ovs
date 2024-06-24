@@ -306,14 +306,14 @@ enum ipfix_flow_direction {
 /* Part of data record flow key for common metadata and Ethernet entities. */
 OVS_PACKED(
 struct ipfix_data_record_flow_key_common {
-    ovs_be32 observation_point_id;  /* OBSERVATION_POINT_ID */
+    ovs_be64 observation_point_id;  /* OBSERVATION_POINT_ID */
     uint8_t flow_direction;  /* FLOW_DIRECTION */
     struct eth_addr source_mac_address; /* SOURCE_MAC_ADDRESS */
     struct eth_addr destination_mac_address; /* DESTINATION_MAC_ADDRESS */
     ovs_be16 ethernet_type;  /* ETHERNET_TYPE */
     uint8_t ethernet_header_length;  /* ETHERNET_HEADER_LENGTH */
 });
-BUILD_ASSERT_DECL(sizeof(struct ipfix_data_record_flow_key_common) == 20);
+BUILD_ASSERT_DECL(sizeof(struct ipfix_data_record_flow_key_common) == 24);
 
 /* Part of data record flow key for interface information. Since some of the
  * elements have variable length, members of this structure should be appended
@@ -2184,7 +2184,7 @@ ipfix_cache_entry_init(const struct dpif_ipfix *di,
                        struct ipfix_flow_cache_entry *entry,
                        const struct dp_packet *packet, const struct flow *flow,
                        uint64_t packet_delta_count, uint32_t obs_domain_id,
-                       uint32_t obs_point_id, odp_port_t output_odp_port,
+                       uint64_t obs_point_id, odp_port_t output_odp_port,
                        enum nx_action_sample_direction direction,
                        const struct dpif_ipfix_port *tunnel_port,
                        const struct flow_tnl *tunnel_key,
@@ -2287,7 +2287,7 @@ ipfix_cache_entry_init(const struct dpif_ipfix *di,
         struct ipfix_data_record_flow_key_common *data_common;
 
         data_common = dp_packet_put_zeros(&msg, sizeof *data_common);
-        data_common->observation_point_id = htonl(obs_point_id);
+        data_common->observation_point_id = htonll(obs_point_id);
         data_common->flow_direction = flow_direction;
         data_common->source_mac_address = flow->dl_src;
         data_common->destination_mac_address = flow->dl_dst;
@@ -2753,7 +2753,7 @@ dpif_ipfix_sample(const struct dpif_ipfix *di,
                   struct dpif_ipfix_exporter *exporter,
                   const struct dp_packet *packet, const struct flow *flow,
                   uint64_t packet_delta_count, uint32_t obs_domain_id,
-                  uint32_t obs_point_id, odp_port_t output_odp_port,
+                  uint64_t obs_point_id, odp_port_t output_odp_port,
                   enum nx_action_sample_direction direction,
                   const struct dpif_ipfix_port *tunnel_port,
                   const struct flow_tnl *tunnel_key,

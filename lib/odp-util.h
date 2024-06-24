@@ -326,18 +326,17 @@ struct user_action_cookie {
 
         struct {
             /* USER_ACTION_COOKIE_SLOW_PATH. */
-            uint16_t unused;
             uint32_t reason;        /* enum slow_path_reason. */
         } slow_path;
 
         struct {
             /* USER_ACTION_COOKIE_FLOW_SAMPLE. */
-            uint16_t probability;   /* Sampling probability. */
+            uint64_t obs_point_id;  /* Observation Point ID. */
             uint32_t collector_set_id; /* ID of IPFIX collector set. */
             uint32_t obs_domain_id; /* Observation Domain ID. */
-            uint32_t obs_point_id;  /* Observation Point ID. */
             odp_port_t output_odp_port; /* The output odp port. */
             enum nx_action_sample_direction direction;
+            uint16_t probability;   /* Sampling probability. */
         } flow_sample;
 
         struct {
@@ -357,7 +356,7 @@ struct user_action_cookie {
         } controller;
     };
 };
-BUILD_ASSERT_DECL(sizeof(struct user_action_cookie) == 48);
+BUILD_ASSERT_DECL(sizeof(struct user_action_cookie) == 56);
 
 int odp_put_userspace_action(uint32_t pid,
                              const void *userdata, size_t userdata_size,

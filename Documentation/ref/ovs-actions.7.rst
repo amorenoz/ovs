@@ -2206,7 +2206,7 @@ The following *argument* forms are accepted:
     Observation Domain ID sent in every IPFIX flow record.  Defaults to 0.
 
   ``obs_point_id=``\ *id*
-    When sending samples to IPFIX collectors, the unsigned 32-bit integer
+    When sending samples to IPFIX collectors, the unsigned 64-bit integer
     Observation Point ID sent in every IPFIX flow record.  Defaults to 0.
 
   ``sampling_port=``\ *port*
