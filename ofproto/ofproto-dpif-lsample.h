@@ -26,7 +26,9 @@ struct ofproto_lsample_options;
 struct dpif_flow_stats;
 
 struct dpif_lsample *dpif_lsample_create(void);
+
 void dpif_lsample_unref(struct dpif_lsample *);
+
 struct dpif_lsample *dpif_lsample_ref(const struct dpif_lsample *);
 
 bool dpif_lsample_set_options(struct dpif_lsample *,
