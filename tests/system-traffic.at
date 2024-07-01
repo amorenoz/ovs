@@ -9359,7 +9359,8 @@ OVS_WAIT_UNTIL([grep -qE 'SAMPLE1' psample.out])
 OVS_WAIT_UNTIL([grep -qE 'SAMPLE2' psample.out])
 
 dnl Check IPFIX samples have been received.
-dnl Entries can be unsorted and IFPIX packets might not have been sent yet.
+dnl Entries can be unsorted and IFPIX packets might not have been sent (or
+dnl at least tried to be sent) yet.
 OVS_WAIT_UNTIL_EQUAL([ovs-ofctl dump-ipfix-flow br0 | \
                 sed 's/tx pkts=[[0-9]]*/tx pkts=24/' | \
                 sed 's/tx errs=[[0-9]]*/tx errs=0/' | \
