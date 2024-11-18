@@ -2120,6 +2120,18 @@ ukey_install__(struct udpif *udpif, struct udpif_key *new_ukey)
     return locked;
 }
 
+static char *ukey_state_str(enum ukey_state state) {
+    switch (state) {
+        case UKEY_CREATED: return "UKEY_CREATED";
+        case UKEY_VISIBLE: return "UKEY_VISIBLE";
+        case UKEY_OPERATIONAL: return "UKEY_OPERATIONAL";
+        case UKEY_INCONSISTENT: return "UKEY_INCONSISTENT";
+        case UKEY_EVICTING: return "UKEY_EVICTING";
+        case UKEY_EVICTED: return "UKEY_EVICTED";
+        case UKEY_DELETED: return "UKEY_DELETED";
+    }
+}
+
 static void
 transition_ukey_at(struct udpif_key *ukey, enum ukey_state dst,
                    const char *where)
@@ -2160,8 +2172,8 @@ transition_ukey_at(struct udpif_key *ukey, enum ukey_state dst,
     if (ukey->state == dst - 1 ||
        (ukey->state == UKEY_VISIBLE && dst < UKEY_DELETED) ||
        (ukey->state == UKEY_OPERATIONAL && dst == UKEY_EVICTING)) {
-       dpif_tracer_addf(ukey->tracer, "Transitioned from %d -> %d",
-                        ukey->state, dst);
+       dpif_tracer_addf(ukey->tracer, "Transitioned from %s -> %s",
+                        ukey_state_str(ukey->state), ukey_state_str(dst));
         ukey->state = dst;
     } else {
         struct ds ds = DS_EMPTY_INITIALIZER;
