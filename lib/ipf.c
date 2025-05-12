@@ -261,6 +261,12 @@ ipf_list_clean(struct hmap *frag_lists,
                struct ipf_list *ipf_list)
     /* OVS_REQUIRES(ipf_lock) */
 {
+    /*DEBUG: Poison frag_lists. */
+    for (int i = 0; i < ipf_list->size; i++) {
+        ipf_list->frag_list[i].pkt = (struct dp_packet *) 0xbaddbeefbaddbeef;
+    }
+    VLOG_DBG("ipf: list %p clean", ipf_list);
+
     ovs_list_remove(&ipf_list->list_node);
     hmap_remove(frag_lists, &ipf_list->node);
     free(ipf_list->frag_list);
@@ -565,6 +571,8 @@ ipf_list_state_transition(struct ipf *ipf, struct ipf_list *ipf_list,
                 ipf_expiry_list_remove(ipf_list);
                 next_state = IPF_LIST_STATE_COMPLETED;
                 ret = rp;
+                VLOG_DBG("ipf: list %p: complete reassem %p(%p)",
+                     ipf_list, rp, rp->pkt);
             } else {
                 next_state = IPF_LIST_STATE_REASS_FAIL;
             }
@@ -826,6 +834,8 @@ ipf_process_frag(struct ipf *ipf, struct ipf_list *ipf_list,
             ipf_list->last_inuse_idx++;
             atomic_count_inc(&ipf->nfrag);
             ipf_count(ipf, v6, IPF_NFRAGS_ACCEPTED);
+            VLOG_DBG("ipf: list %p: inserted cloned %p, orig %p",
+                     ipf_list, frag->pkt, pkt);
             *rp = ipf_list_state_transition(ipf, ipf_list, ff, lf, v6);
         } else {
             OVS_NOT_REACHED();
@@ -910,6 +920,7 @@ ipf_handle_frag(struct ipf *ipf, struct dp_packet *pkt, ovs_be16 dl_type,
                       MIN(max_frag_list_size, IPF_FRAG_LIST_MIN_INCREMENT));
         hmap_insert(&ipf->frag_lists, &ipf_list->node, hash);
         ipf_expiry_list_add(&ipf->frag_exp_list, ipf_list, now);
+        VLOG_DBG("ipf: list %p create", ipf_list);
     } else if (ipf_list->state == IPF_LIST_STATE_REASS_FAIL ||
                ipf_list->state == IPF_LIST_STATE_COMPLETED) {
         /* Bail out as early as possible. */
@@ -919,15 +930,18 @@ ipf_handle_frag(struct ipf *ipf, struct dp_packet *pkt, ovs_be16 dl_type,
                             max_frag_list_size - ipf_list->size);
         /* Enforce limit. */
         if (increment > 0) {
+            VLOG_DBG("ipf: list %p growing %d", ipf_list, increment);
             ipf_list->frag_list =
                 xrealloc(ipf_list->frag_list, (ipf_list->size + increment) *
                   sizeof *ipf_list->frag_list);
             ipf_list->size += increment;
+            VLOG_DBG("ipf: list %p grew to %d", ipf_list, ipf_list->size);
         } else {
             return false;
         }
     }
 
+    VLOG_DBG("ipf: list %p process %p", ipf_list, pkt);
     return ipf_process_frag(ipf, ipf_list, pkt, start_data_byte,
                             end_data_byte, ff, lf, v6, rp);
 }
@@ -942,6 +956,7 @@ ipf_extract_frags_from_batch(struct ipf *ipf, struct dp_packet_batch *pb,
     int pb_idx; /* Index in a packet batch. */
     struct dp_packet *pkt;
 
+    VLOG_DBG("ipf: extract %p", pb);
     DP_PACKET_BATCH_REFILL_FOR_EACH (pb_idx, pb_cnt, pkt, pb) {
         if (OVS_UNLIKELY((dl_type == htons(ETH_TYPE_IP) &&
                           ipf_is_valid_v4_frag(ipf, pkt))
@@ -953,12 +968,16 @@ ipf_extract_frags_from_batch(struct ipf *ipf, struct dp_packet_batch *pb,
             ovs_mutex_lock(&ipf->ipf_lock);
             if (!ipf_handle_frag(ipf, pkt, dl_type, zone, now, hash_basis,
                                  &rp)) {
+                VLOG_DBG("ipf: extract %p: %p no reassem", pb, pkt);
                 dp_packet_batch_refill(pb, pkt, pb_idx);
             } else {
                 if (rp && !dp_packet_batch_is_full(pb)) {
+                    VLOG_DBG("ipf: extract %p: %p reassem, inserting ctx %p",
+                             pb, pkt, rp->pkt);
                     dp_packet_batch_refill(pb, rp->pkt, pb_idx);
                     rp->list->reass_execute_ctx = rp->pkt;
                 }
+                VLOG_DBG("ipf: extract %p: %p deleting", pb, pkt);
                 dp_packet_delete(pkt);
             }
             ovs_mutex_unlock(&ipf->ipf_lock);
@@ -1011,10 +1030,12 @@ ipf_purge_list_check(struct ipf *ipf, struct ipf_list *ipf_list,
         return false;
     }
 
+    VLOG_DBG("ipf purge list %p", ipf_list);
     while (ipf_list->last_sent_idx < ipf_list->last_inuse_idx) {
         struct dp_packet * pkt
             = ipf_list->frag_list[ipf_list->last_sent_idx + 1].pkt;
         dp_packet_delete(pkt);
+        VLOG_DBG("ipf purge list %p pkt %p", ipf_list, pkt);
         atomic_count_dec(&ipf->nfrag);
         COVERAGE_INC(ipf_stuck_frag_list_purged);
         ipf_count(ipf, ipf_list->key.dl_type == htons(ETH_TYPE_IPV6),
@@ -1040,6 +1061,11 @@ ipf_send_frags_in_list(struct ipf *ipf, struct ipf_list *ipf_list,
         struct dp_packet *pkt
             = ipf_list->frag_list[ipf_list->last_sent_idx + 1].pkt;
         if (ipf_dp_packet_batch_add(pb, pkt, true)) {
+            /* DEBUG: Poison frag_list. */
+            ipf_list->frag_list[ipf_list->last_sent_idx + 1].pkt =
+                (struct dp_packet *) 0xdeadbeefdeadbeef;
+
+
             ipf_list->last_sent_idx++;
             atomic_count_dec(&ipf->nfrag);
 
@@ -1086,6 +1112,7 @@ ipf_send_completed_frags(struct ipf *ipf, struct dp_packet_batch *pb,
             continue;
         }
 
+        VLOG_DBG("ipf %p send %p", pb, ipf_list);
         if (ipf_send_frags_in_list(ipf, ipf_list, pb, v6, now)) {
             ipf_completed_list_clean(&ipf->frag_lists, ipf_list);
         } else {
@@ -1105,7 +1132,6 @@ ipf_delete_expired_frags(struct ipf *ipf, long long now)
         IPF_FRAG_LIST_MAX_EXPIRED = 1,
     };
 
-
     if (ovs_list_is_empty(&ipf->frag_exp_list)) {
         return;
     }
@@ -1120,10 +1146,12 @@ ipf_delete_expired_frags(struct ipf *ipf, long long now)
             break;
         }
 
+        VLOG_DBG("ipf delete expired %p", ipf_list);
         while (ipf_list->last_sent_idx < ipf_list->last_inuse_idx) {
             struct dp_packet * pkt
                 = ipf_list->frag_list[ipf_list->last_sent_idx + 1].pkt;
             dp_packet_delete(pkt);
+            VLOG_DBG("ipf delete expired %p pkt %p", ipf_list, pkt);
             atomic_count_dec(&ipf->nfrag);
             COVERAGE_INC(ipf_stuck_frag_list_expired);
             ipf_count(ipf, ipf_list->key.dl_type == htons(ETH_TYPE_IPV6),
@@ -1154,6 +1182,7 @@ ipf_execute_reass_pkts(struct ipf *ipf, struct dp_packet_batch *pb,
         if (!rp->list->reass_execute_ctx &&
             rp->list->key.dl_type == dl_type &&
             ipf_dp_packet_batch_add(pb, rp->pkt, false)) {
+            VLOG_DBG("ipf execute_reass %p inserting %p(%p)", pb, rp, rp->pkt);
             rp->list->reass_execute_ctx = rp->pkt;
         }
     }
@@ -1178,10 +1207,14 @@ ipf_post_execute_reass_pkts(struct ipf *ipf,
         const size_t pb_cnt = dp_packet_batch_size(pb);
         int pb_idx;
         struct dp_packet *pkt;
+
         /* Inner batch loop is constant time since batch size is <=
          * NETDEV_MAX_BURST. */
         DP_PACKET_BATCH_REFILL_FOR_EACH (pb_idx, pb_cnt, pkt, pb) {
             if (rp && pkt == rp->list->reass_execute_ctx) {
+
+                VLOG_DBG("ipf: postprocess %p reassm %p(%p), ctx %p",
+                         pb, rp, rp->pkt, pkt);
                 const struct ipf_frag *frag_0 = &rp->list->frag_list[0];
                 void *l4_frag = dp_packet_l4(frag_0->pkt);
                 void *l4_reass = dp_packet_l4(pkt);
