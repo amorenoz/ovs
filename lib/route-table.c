@@ -162,7 +162,7 @@ route_table_wait(void)
 }
 
 bool
-route_table_dump_one_table(uint32_t id,
+route_table_dump_one_table(uint32_t id, unsigned char family,
                            route_table_handle_msg_callback *handle_msg_cb,
                            void *aux)
 {
@@ -177,7 +177,7 @@ route_table_dump_one_table(uint32_t id,
     nl_msg_put_nlmsghdr(&request, sizeof *rq_msg, RTM_GETROUTE, NLM_F_REQUEST);
 
     rq_msg = ofpbuf_put_zeros(&request, sizeof *rq_msg);
-    rq_msg->rtm_family = AF_UNSPEC;
+    rq_msg->rtm_family = family;
 
     if (id > UCHAR_MAX) {
         rq_msg->rtm_table = RT_TABLE_UNSPEC;
@@ -227,7 +227,14 @@ route_table_reset(void)
     COVERAGE_INC(route_table_dump);
 
     for (size_t i = 0; i < ARRAY_SIZE(tables); i++) {
-        if (!route_table_dump_one_table(tables[i],
+        if (!route_table_dump_one_table(tables[i], AF_INET,
+                                        route_table_handle_msg, NULL)) {
+            /* Got unfiltered reply, no need to dump further. */
+            break;
+        }
+    }
+    for (size_t i = 0; i < ARRAY_SIZE(tables); i++) {
+        if (!route_table_dump_one_table(tables[i], AF_INET6,
                                         route_table_handle_msg, NULL)) {
             /* Got unfiltered reply, no need to dump further. */
             break;

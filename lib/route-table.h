@@ -162,7 +162,7 @@ bool route_table_fallback_lookup(const struct in6_addr *ip6_dst,
 typedef void route_table_handle_msg_callback(const struct route_table_msg *,
                                              void *aux);
 
-bool route_table_dump_one_table(uint32_t id,
+bool route_table_dump_one_table(uint32_t id, unsigned char family,
                                 route_table_handle_msg_callback *,
                                 void *aux);
 int route_table_parse(struct ofpbuf *, void *change);
