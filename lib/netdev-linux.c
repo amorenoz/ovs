@@ -262,6 +262,31 @@ static struct rtnetlink_change netlink_change;
 static struct nln *nln = NULL;
 static struct nln_notifier *notifiers[4] = {NULL, NULL, NULL, NULL};
 
+/* Interface addresses. */
+static int netdev_linux_get_addrs(const char dev[], struct in6_addr **addr,
+                                  struct in6_addr **mask, int *n_cnt);
+static int netdev_linux_ifaddr_update(void);
+
+struct ifaddress {
+    struct ovs_list node;       /* Node in ifaddr_list. */
+    struct in6_addr addr;
+    struct in6_addr mask;
+};
+
+struct ifaddr_list {
+    struct ovs_list list;      /* Contains a list of struct ifaddress. */
+};
+
+/* Protects the ifaddr_shash and ifaddr_needs_refresh. */
+static struct ovs_mutex ifaddr_mutex = OVS_MUTEX_INITIALIZER;
+
+/* Network addresses indexed by interface name. */
+static struct shash ifaddr_shash OVS_GUARDED_BY(ifaddr_mutex)
+    = SHASH_INITIALIZER(&ifaddr_shash);
+
+/* Indicates whether the ifaddr_shash should be considered stale. */
+static bool ifaddr_needs_refresh OVS_GUARDED_BY(ifaddr_mutex) = true;
+
 /* Traffic control. */
 
 /* An instance of a traffic control class.  Always associated with a particular
@@ -862,7 +887,7 @@ netdev_linux_changed(struct netdev_linux *dev,
 
     dev->cache_valid &= mask;
     if (!(mask & VALID_IN)) {
-        netdev_get_addrs_list_flush();
+        netdev_linux_ifaddr_flush();
     }
 }
 
@@ -3586,13 +3611,19 @@ netdev_linux_get_addr_list(const struct netdev *netdev_,
     struct netdev_linux *netdev = netdev_linux_cast(netdev_);
     int error;
 
+    error = netdev_linux_ifaddr_update();
+    if (error) {
+        return error;
+    }
+
     ovs_mutex_lock(&netdev->mutex);
     if (netdev_linux_netnsid_is_remote(netdev)) {
         error = EOPNOTSUPP;
         goto exit;
     }
 
-    error = netdev_get_addrs(netdev_get_name(netdev_), addr, mask, n_cnt);
+    error = netdev_linux_get_addrs(netdev_get_name(netdev_), addr, mask,
+                                   n_cnt);
 
 exit:
     ovs_mutex_unlock(&netdev->mutex);
@@ -7292,5 +7323,212 @@ netdev_linux_prepend_vnet_hdr(struct dp_packet *b, int mtu)
     }
 
     dp_packet_push(b, vnet, sizeof *vnet);
+    return 0;
+}
+
+void
+netdev_linux_ifaddr_flush(void)
+{
+    ovs_mutex_lock(&ifaddr_mutex);
+    ifaddr_needs_refresh = true;
+    ovs_mutex_unlock(&ifaddr_mutex);
+}
+
+static void
+netdev_linux_ifaddr_free(void)
+{
+    struct ifaddr_list *ifaddr_list;
+    struct shash_node *shash_node;
+    struct ifaddress *ifaddr;
+
+    SHASH_FOR_EACH_SAFE (shash_node, &ifaddr_shash) {
+        ifaddr_list = shash_node->data;
+        LIST_FOR_EACH_POP (ifaddr, node, &ifaddr_list->list) {
+                free(ifaddr);
+        }
+        shash_delete(&ifaddr_shash, shash_node);
+        free(ifaddr_list);
+    }
+}
+
+#if 0
+static void
+netdev_linux_ifaddr_print(void)
+{
+    struct ifaddr_list *ifaddr_list;
+    struct shash_node *shash_node;
+    struct ifaddress *ifaddr;
+    struct ds ds;
+
+    ds_init(&ds);
+    ds_put_cstr(&ds, "GETIFADDR GOT");
+
+    SHASH_FOR_EACH_SAFE (shash_node, &ifaddr_shash) {
+        ifaddr_list = shash_node->data;
+        ds_put_format(&ds, "\n%s : ", shash_node->name);
+        LIST_FOR_EACH (ifaddr, node, &ifaddr_list->list) {
+            ipv6_format_mapped(&ifaddr->addr, &ds);
+            ds_put_cstr(&ds, " / ");
+            ipv6_format_mapped(&ifaddr->mask, &ds);
+            ds_put_cstr(&ds, "| ");
+        }
+    }
+    VLOG_DBG("GETIFADDR\n%s", ds_cstr(&ds));
+    ds_destroy(&ds);
+}
+#endif
+
+static int
+netdev_linux_ifaddr_fill(struct rtnetlink_change *change,
+                         struct shash *devices)
+{
+    struct shash_node *node;
+    struct ifaddress *ifaddr;
+    struct ifaddr_list *ifaddr_list;
+    char *ifname = change->ifname ? xstrdup(change->ifname) : NULL;
+
+    /* Try to get ifname from the rtnnetlink data. If not present, look in
+     * alrady opened netdevs, as last resort, open the netdev again. */
+    if (!ifname) {
+        SHASH_FOR_EACH (node, devices) {
+            struct netdev *netdev = node->data;
+            int ifindex;
+
+            ifindex = netdev_get_ifindex(netdev);
+            if (ifindex == change->if_index) {
+                ifname = xstrdup(netdev->name);
+            }
+        }
+    }
+    if (!ifname) {
+        ifname = xzalloc(IFNAMSIZ);
+        if (if_indextoname(change->if_index, ifname) == NULL) {
+            free(ifname);
+            return ENODEV;
+        }
+    }
+
+    ifaddr = xzalloc(sizeof *ifaddr);
+    ifaddr->addr = change->in_addr;
+    ifaddr->mask = change->in_mask;
+
+    node = shash_find(&ifaddr_shash, ifname);
+    if (node) {
+        ifaddr_list = node->data;
+        free(ifname);
+    } else {
+        ifaddr_list = xzalloc(sizeof *ifaddr_list);
+        ovs_list_init(&ifaddr_list->list);
+        shash_add_nocopy(&ifaddr_shash, ifname, ifaddr_list);
+    }
+    ovs_list_insert(&ifaddr_list->list, &ifaddr->node);
+
+    return 0;
+}
+
+static int
+netdev_linux_ifaddr_get(void)
+{
+
+    uint64_t reply_stub[NL_DUMP_BUFSIZE / 8];
+    struct ofpbuf request, reply, buf;
+    struct shash device_shash;
+    struct shash_node *node;
+    struct nl_dump dump;
+    int error = 0;
+
+    shash_init(&device_shash);
+    netdev_get_devices(&netdev_linux_class, &device_shash);
+
+    ofpbuf_init(&request, 0);
+    ofpbuf_use_stub(&buf, reply_stub, sizeof reply_stub);
+    nl_msg_put_nlmsghdr(&request, sizeof(struct ifaddrmsg), RTM_GETADDR,
+                        NLM_F_REQUEST);
+    ofpbuf_put_zeros(&request, sizeof(struct ifaddrmsg));
+
+    nl_dump_start(&dump, NETLINK_ROUTE, &request);
+    ofpbuf_uninit(&request);
+
+    while (nl_dump_next(&dump, &reply, &buf)) {
+        struct rtnetlink_change change = {0};
+
+        if (rtnetlink_parse(&reply, &change) &&
+            !change.irrelevant &&
+            change.nlmsg_type == RTM_NEWADDR) {
+            error = netdev_linux_ifaddr_fill(&change, &device_shash);
+        } else {
+            error = EINVAL;
+        }
+        if (error) {
+            break;
+        }
+    }
+
+    SHASH_FOR_EACH (node, &device_shash) {
+        struct netdev *netdev = node->data;
+        netdev_close(netdev);
+    }
+    shash_destroy(&device_shash);
+    ofpbuf_uninit(&buf);
+    nl_dump_done(&dump);
+
+    return error;
+}
+
+static int
+netdev_linux_ifaddr_update(void)
+{
+    int error = 0;
+
+    ovs_mutex_lock(&ifaddr_mutex);
+    if (ifaddr_needs_refresh) {
+        netdev_linux_ifaddr_free();
+        error = netdev_linux_ifaddr_get();
+        if (!error) {
+            ifaddr_needs_refresh = false;
+        }
+    }
+    ovs_mutex_unlock(&ifaddr_mutex);
+    return error;
+}
+
+static int
+netdev_linux_get_addrs(const char dev[], struct in6_addr **paddr,
+                       struct in6_addr **pmask, int *n_in)
+{
+    struct in6_addr *addr_array, *mask_array;
+    struct ifaddr_list *ifaddr_list;
+    struct ifaddress *ifaddr;
+    struct shash_node *node;
+    int cnt = 0, i = 0;
+
+    node = shash_find(&ifaddr_shash, dev);
+    if (!node) {
+        return EADDRNOTAVAIL;
+    }
+
+    ifaddr_list = node->data;
+    cnt = ovs_list_size(&ifaddr_list->list);
+    if (cnt == 0) {
+        return EADDRNOTAVAIL;
+    }
+
+    addr_array = xzalloc(sizeof *addr_array * cnt);
+    mask_array = xzalloc(sizeof *mask_array * cnt);
+
+    LIST_FOR_EACH (ifaddr, node, &ifaddr_list->list) {
+        addr_array[i] = ifaddr->addr;
+        mask_array[i] = ifaddr->mask;
+        i++;
+    }
+
+    if (paddr) {
+        *n_in = cnt;
+        *paddr = addr_array;
+        *pmask = mask_array;
+    } else {
+        free(addr_array);
+        free(mask_array);
+    }
     return 0;
 }

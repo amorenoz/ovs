@@ -30,6 +30,7 @@
 #include "coverage.h"
 #include "hash.h"
 #include "netdev.h"
+#include "netdev-linux.h"
 #include "netlink.h"
 #include "netlink-notifier.h"
 #include "netlink-socket.h"
@@ -275,6 +276,7 @@ route_table_reset(void)
 {
     route_map_clear();
     netdev_get_addrs_list_flush();
+    netdev_linux_ifaddr_flush();
     route_table_valid = true;
     rules_valid = true;
     rt_change_seq++;

@@ -37,5 +37,5 @@ int tc_del_policer_action(uint32_t index, struct ofputil_meter_stats *stats);
 int tc_get_policer_action(uint32_t index, struct ofputil_meter_stats *stats);
 void netdev_linux_rtnetlink_update(const struct rtnetlink_change *change,
                                    int nsid, void *);
-
+void netdev_linux_ifaddr_flush(void);
 #endif /* netdev-linux.h */
