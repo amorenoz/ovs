@@ -19,8 +19,10 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include <linux/if_ether.h>
 #include <linux/if_link.h>
+#include <netinet/in.h>
 
 #include "openvswitch/types.h"
 
@@ -91,7 +93,8 @@ struct rtnetlink_change {
                                    that OVS should care about. */
 
     /* Network device address status. */
-    /* xxx To be added when needed. */
+    struct in6_addr in_addr;
+    struct in6_addr in_mask;
 
     /* Link bonding info. */
     const char *primary;        /* Kind of primary (NULL if not primary). */

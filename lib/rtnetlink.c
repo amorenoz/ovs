@@ -80,6 +80,24 @@ rtnetlink_parse_link_info(const struct nlattr *nla,
     return parsed;
 }
 
+static bool
+rtnetlink_parse_inaddr(const struct ifaddrmsg *msg, const void *data,
+                       const size_t size, struct rtnetlink_change *change)
+{
+    if (msg->ifa_family == AF_INET && size == 4) {
+        change->in_addr = in6_addr_mapped_ipv4(*(ovs_be32 *) data);
+        change->in_mask = in6_addr_mapped_ipv4(
+            be32_prefix_mask(msg->ifa_prefixlen));
+        return true;
+    } else if (msg->ifa_family == AF_INET6 && size == 16) {
+        change->in_addr = *(struct in6_addr *) data;
+        change->in_mask = ipv6_create_mask(msg->ifa_prefixlen);
+        return true;
+    }
+    return false;
+}
+
+
 /* Parses a rtnetlink message 'buf' into 'change'.  If 'buf' is unparseable,
  * leaves 'change' untouched and returns false.  Otherwise, populates 'change'
  * and returns true. */
@@ -182,6 +200,8 @@ rtnetlink_parse(struct ofpbuf *buf, struct rtnetlink_change *change)
          * only care about these fields. */
         static const struct nl_policy policy[] = {
             [IFA_LABEL] = { .type = NL_A_STRING, .optional = true },
+            [IFA_ADDRESS] = { .type = NL_A_UNSPEC, .optional = true },
+            [IFA_LOCAL] = { .type = NL_A_UNSPEC, .optional = true },
         };
 
         struct nlattr *attrs[ARRAY_SIZE(policy)];
@@ -191,6 +211,7 @@ rtnetlink_parse(struct ofpbuf *buf, struct rtnetlink_change *change)
 
         if (parsed) {
             const struct ifaddrmsg *ifaddr;
+            struct nlattr *addr_attr;
 
             ifaddr = ofpbuf_at_assert(buf, NLMSG_HDRLEN, sizeof *ifaddr);
 
@@ -199,6 +220,21 @@ rtnetlink_parse(struct ofpbuf *buf, struct rtnetlink_change *change)
             change->ifname         = (attrs[IFA_LABEL]
                                       ? nl_attr_get_string(attrs[IFA_LABEL])
                                       : NULL);
+
+            /* IFA_LOCAL is empty for normally configured addresses. However,
+             * for point-to-point IFA_ADDRESS is the destination address and
+             * IFA_LOCAL is the local one. */
+            addr_attr =
+                attrs[IFA_LOCAL] ? attrs[IFA_LOCAL] : attrs[IFA_ADDRESS];
+
+            if (addr_attr) {
+                parsed = rtnetlink_parse_inaddr(ifaddr,
+                                                nl_attr_get(addr_attr),
+                                                nl_attr_get_size(addr_attr),
+                                                change);
+            } else {
+                parsed = false;
+            }
         }
     }
 
