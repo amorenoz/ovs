@@ -121,7 +121,10 @@ __test_lib_route_table_dump(const struct route_table_msg *change,
 static void
 test_lib_route_table_dump(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
 {
-    route_table_dump_one_table(RT_TABLE_UNSPEC,
+    route_table_dump_one_table(RT_TABLE_UNSPEC, AF_INET,
+                               __test_lib_route_table_dump,
+                               NULL);
+    route_table_dump_one_table(RT_TABLE_UNSPEC, AF_INET6,
                                __test_lib_route_table_dump,
                                NULL);
 }
