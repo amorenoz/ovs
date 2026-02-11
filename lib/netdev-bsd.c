@@ -155,6 +155,10 @@ static int af_link_ioctl(unsigned long command, const void *arg);
 static void netdev_bsd_run(const struct netdev_class *);
 static int netdev_bsd_get_mtu(const struct netdev *netdev_, int *mtup);
 
+static void netdev_bsd_get_addrs_list_flush(void);
+static int netdev_bsd_get_addrs(const char dev[], struct in6_addr **paddr,
+                                struct in6_addr **pmask, int *n_in);
+
 static bool
 is_netdev_bsd_class(const struct netdev_class *netdev_class)
 {
@@ -1278,7 +1282,7 @@ netdev_bsd_get_addr_list(const struct netdev *netdev_,
     int error;
 
     if (!(netdev->cache_valid & VALID_IN)) {
-        netdev_get_addrs_list_flush();
+        netdev_bsd_get_addrs_list_flush();
     }
     error = netdev_get_addrs(netdev_get_name(netdev_), addr, mask, n_cnt);
     if (!error) {
@@ -1803,3 +1807,99 @@ af_link_ioctl(unsigned long command, const void *arg)
 }
 #endif
 #endif /* !defined(__MACH__) */
+
+
+/* Cache of interface addresses based on libc's getifaddrs. */
+
+static struct ifaddrs *if_addr_list;
+static struct ovs_mutex if_addr_list_lock = OVS_MUTEX_INITIALIZER;
+
+static void
+netdev_bsd_get_addrs_list_flush(void)
+{
+    ovs_mutex_lock(&if_addr_list_lock);
+    if (if_addr_list) {
+        freeifaddrs(if_addr_list);
+        if_addr_list = NULL;
+    }
+    ovs_mutex_unlock(&if_addr_list_lock);
+}
+
+static int
+netdev_bsd_get_addrs(const char dev[], struct in6_addr **paddr,
+                 struct in6_addr **pmask, int *n_in)
+{
+    struct in6_addr *addr_array, *mask_array;
+    const struct ifaddrs *ifa;
+    int cnt = 0, i = 0;
+    int retries = 3;
+
+    ovs_mutex_lock(&if_addr_list_lock);
+    if (!if_addr_list) {
+        int err;
+
+retry:
+        err = getifaddrs(&if_addr_list);
+        if (err) {
+            ovs_mutex_unlock(&if_addr_list_lock);
+            return -err;
+        }
+        retries--;
+    }
+
+    for (ifa = if_addr_list; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_name) {
+            if (retries) {
+                /* Older versions of glibc have a bug on race condition with
+                 * address addition which may cause one of the returned
+                 * ifa_name values to be NULL. In such case, we know that we've
+                 * got an inconsistent dump. Retry but beware of an endless
+                 * loop. From glibc 2.28 and beyond, this workaround is not
+                 * needed and should be eventually removed. */
+                freeifaddrs(if_addr_list);
+                goto retry;
+            } else {
+                VLOG_WARN("Proceeding with an inconsistent dump of "
+                          "interfaces from the kernel. Some may be missing");
+            }
+        }
+        if (ifa->ifa_addr && ifa->ifa_name && ifa->ifa_netmask) {
+            int family;
+
+            family = ifa->ifa_addr->sa_family;
+            if (family == AF_INET || family == AF_INET6) {
+                if (!strncmp(ifa->ifa_name, dev, IFNAMSIZ)) {
+                    cnt++;
+                }
+            }
+        }
+    }
+
+    if (!cnt) {
+        ovs_mutex_unlock(&if_addr_list_lock);
+        return EADDRNOTAVAIL;
+    }
+    addr_array = xzalloc(sizeof *addr_array * cnt);
+    mask_array = xzalloc(sizeof *mask_array * cnt);
+    for (ifa = if_addr_list; ifa; ifa = ifa->ifa_next) {
+        if (ifa->ifa_name
+            && ifa->ifa_addr
+            && ifa->ifa_netmask
+            && !strncmp(ifa->ifa_name, dev, IFNAMSIZ)
+            && sa_is_ip(ifa->ifa_addr)) {
+            addr_array[i] = sa_get_address(ifa->ifa_addr);
+            mask_array[i] = sa_get_address(ifa->ifa_netmask);
+            i++;
+        }
+    }
+    ovs_mutex_unlock(&if_addr_list_lock);
+    if (paddr) {
+        *n_in = cnt;
+        *paddr = addr_array;
+        *pmask = mask_array;
+    } else {
+        free(addr_array);
+        free(mask_array);
+    }
+    return 0;
+}
